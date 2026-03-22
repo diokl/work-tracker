@@ -1,9 +1,12 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useTasks } from '@/lib/hooks'
+import { useTasks, useProjects } from '@/lib/hooks'
+import { createClient } from '@/lib/supabase/client'
 import { Profile, STATUS_LABELS, STATUS_COLORS } from '@/lib/types'
 import { CheckCircle2, Circle, Clock, AlertCircle, Plus, Calendar } from 'lucide-react'
+import TaskFormModal from './TaskFormModal'
 
 interface DashboardViewProps {
   profile: Profile | null
@@ -11,7 +14,25 @@ interface DashboardViewProps {
 }
 
 export default function DashboardView({ profile, userId }: DashboardViewProps) {
-  const { tasks } = useTasks(userId)
+  const { tasks, refetch: refetchTasks } = useTasks(userId)
+  const { projects } = useProjects(userId)
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const supabase = createClient()
+
+  // Fetch approved profiles for sharing
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('id', userId)
+        .eq('is_approved', true)
+        .order('name')
+      setProfiles(data || [])
+    }
+    if (userId) fetchProfiles()
+  }, [userId])
 
   // Get today's date
   const today = new Date().toISOString().split('T')[0]
@@ -228,13 +249,13 @@ export default function DashboardView({ profile, userId }: DashboardViewProps) {
 
           {/* Quick Actions */}
           <div className="space-y-3">
-            <Link
-              href="/dashboard"
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium transition-colors shadow-sm"
+            <button
+              onClick={() => setShowForm(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium transition-colors shadow-sm"
             >
               <Plus size={18} />
               새 업무 등록
-            </Link>
+            </button>
             <Link
               href="/calendar"
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-[var(--border)] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-[var(--text)] font-medium transition-colors"
@@ -245,6 +266,18 @@ export default function DashboardView({ profile, userId }: DashboardViewProps) {
           </div>
         </div>
       </div>
+
+      {/* Task Form Modal */}
+      {showForm && (
+        <TaskFormModal
+          selectedDate={new Date().toISOString().split('T')[0] as string}
+          projects={projects}
+          profiles={profiles}
+          onClose={() => setShowForm(false)}
+          onSave={() => { setShowForm(false); refetchTasks(); }}
+          userId={userId}
+        />
+      )}
     </div>
   )
 }

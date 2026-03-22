@@ -21,7 +21,7 @@ import ThemeToggle from './ThemeToggle'
 const navItems = [
   { label: '대시보드', icon: LayoutDashboard, href: '/dashboard' },
   { label: '달력', icon: Calendar, href: '/calendar' },
-  { label: '칸반보드', icon: Columns3, href: '/kanban' },
+  { label: '업무보드', icon: Columns3, href: '/kanban' },
   { label: '프로젝트', icon: FolderKanban, href: '/projects' },
   { label: '개인', icon: Lock, href: '/personal' },
   { label: '설정', icon: Settings, href: '/settings' },

@@ -10,8 +10,8 @@ import {
 import { Plus, ChevronDown, Calendar } from 'lucide-react'
 import { useAuth } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
-import type { Task, TaskStatus } from '@/lib/types'
-// STATUS_LABELS and STATUS_COLORS defined locally below
+import TaskFormModal from '@/components/TaskFormModal'
+import type { Task, TaskStatus, Profile } from '@/lib/types'
 
 const STATUSES: TaskStatus[] = ['pending', 'in_progress', 'completed', 'waiting_next']
 
@@ -225,9 +225,9 @@ export default function KanbanPage() {
   const [dateRange, setDateRange] = useState<'month' | 'week' | 'all'>('month')
   const [selectedProject, setSelectedProject] = useState<string>('all')
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+  const [profiles, setProfiles] = useState<Profile[]>([])
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showTaskForm, setShowTaskForm] = useState(false)
-  const [formTaskStatus, setFormTaskStatus] = useState<TaskStatus>('pending')
 
   // Fetch projects
   useEffect(() => {
@@ -244,6 +244,24 @@ export default function KanbanPage() {
     }
 
     fetchProjects()
+  }, [user?.id, supabase])
+
+  // Fetch approved profiles for sharing
+  useEffect(() => {
+    if (!user?.id) return
+
+    const fetchProfiles = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('id', user.id)
+        .eq('is_approved', true)
+        .order('name')
+
+      setProfiles(data || [])
+    }
+
+    fetchProfiles()
   }, [user?.id, supabase])
 
   // Fetch tasks
@@ -324,8 +342,7 @@ export default function KanbanPage() {
     }
   }
 
-  const handleAddTask = (status: TaskStatus) => {
-    setFormTaskStatus(status)
+  const handleAddTask = (_status: TaskStatus) => {
     setSelectedTask(null)
     setShowTaskForm(true)
   }
@@ -374,7 +391,7 @@ export default function KanbanPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">
-          칸반보드
+          업무보드
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
           업무의 진행 상황을 한눈에 확인하세요
@@ -442,54 +459,17 @@ export default function KanbanPage() {
         </div>
       </DragDropContext>
 
-      {/* Task Form Modal - Placeholder */}
-      {showTaskForm && (
-        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                {selectedTask ? '업무 수정' : '새 업무'}
-              </h2>
-              <button
-                onClick={handleFormClose}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                <span className="text-2xl text-gray-600 dark:text-gray-400">×</span>
-              </button>
-            </div>
-
-            <div className="p-6">
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                {selectedTask
-                  ? `업무를 수정하세요: ${selectedTask.title}`
-                  : `새로운 업무를 생성하세요 (상태: ${STATUS_CONFIG[formTaskStatus].label})`}
-              </p>
-
-              {/* Placeholder for TaskFormModal component */}
-              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-8 text-center text-gray-500 dark:text-gray-400">
-                <p className="mb-4">업무 폼 컴포넌트가 여기에 렌더링됩니다</p>
-                <p className="text-sm">
-                  TaskFormModal 컴포넌트를 이 위치에 통합하세요
-                </p>
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={handleFormClose}
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  취소
-                </button>
-                <button
-                  onClick={handleTaskSave}
-                  className="flex-1 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors"
-                >
-                  저장
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Task Form Modal */}
+      {showTaskForm && user && (
+        <TaskFormModal
+          task={selectedTask}
+          selectedDate={new Date().toISOString().split('T')[0] as string}
+          projects={projects as any}
+          profiles={profiles}
+          onClose={handleFormClose}
+          onSave={handleTaskSave}
+          userId={user.id}
+        />
       )}
     </div>
   )
