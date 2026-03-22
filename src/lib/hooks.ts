@@ -73,17 +73,14 @@ export function useProjects(userId: string | undefined) {
 
   const fetchProjects = useCallback(async () => {
     if (!userId) return
-    console.log('[useProjects] fetch start, userId:', userId)
     setLoading(true)
     try {
-      const { data, error } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false })
-      console.log('[useProjects] fetch done, count:', data?.length, 'error:', error?.message)
+      const { data } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false })
       setProjects(data || [])
     } catch (e) {
-      console.error('[useProjects] fetch exception:', e)
+      console.error('fetchProjects error:', e)
     } finally {
       setLoading(false)
-      console.log('[useProjects] loading=false')
     }
   }, [userId])
 
