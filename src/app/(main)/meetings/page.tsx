@@ -36,8 +36,6 @@ function useSpeechRecognition() {
   const [isSupported, setIsSupported] = useState(false)
   const recognitionRef = useRef<any>(null)
   const isListeningRef = useRef(false)
-  const hadErrorRef = useRef(false)
-  const restartCountRef = useRef(0)
   const onResultRef = useRef<((result: SttResult) => void) | null>(null)
   const onErrorRef = useRef<((error: string) => void) | null>(null)
 
@@ -64,14 +62,20 @@ function useSpeechRecognition() {
     }
 
     const recognition = new SpeechRecognition()
+    // continuous=true: recognition keeps listening until explicitly stopped.
+    // This prevents onend from firing after each utterance, which would require
+    // calling start() again — and each start() triggers a new mic permission popup.
     recognition.continuous = true
     recognition.interimResults = true
     recognition.lang = language
+    // Limit max alternatives to reduce duplicate processing
+    recognition.maxAlternatives = 1
 
     onResultRef.current = onResult
     onErrorRef.current = onError
 
     recognition.onresult = (event: any) => {
+      // Only process results from resultIndex onward to avoid re-processing old results
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i]
         if (onResultRef.current) {
@@ -84,14 +88,13 @@ function useSpeechRecognition() {
     }
 
     recognition.onerror = (event: any) => {
-      // no-speech: Chrome fires this when silence is detected — harmless, auto-restart OK
+      console.log('[STT] onerror:', event.error)
+      // no-speech: Chrome fires this when silence is detected — harmless with continuous=true
       if (event.error === 'no-speech') return
       // aborted: user or code called stop() — not an error
       if (event.error === 'aborted') return
 
-      // Real error — prevent auto-restart
-      hadErrorRef.current = true
-
+      // Real error — report to user
       if (onErrorRef.current) {
         const messages: Record<string, string> = {
           'not-allowed': '마이크 권한이 거부되었습니다. 브라우저 주소창 옆 자물쇠 아이콘에서 마이크를 허용해주세요.',
@@ -104,19 +107,12 @@ function useSpeechRecognition() {
     }
 
     recognition.onend = () => {
-      // Auto-restart ONLY if: still listening + no error + within restart limit
-      if (isListeningRef.current && !hadErrorRef.current && restartCountRef.current < 100) {
-        restartCountRef.current++
-        hadErrorRef.current = false
-        try {
-          recognition.start()
-          return
-        } catch {
-          // Fall through to stop
-        }
-      }
-      // Otherwise, stop completely
-      hadErrorRef.current = false
+      console.log('[STT] onend fired, isListening:', isListeningRef.current)
+      // With continuous=true, onend should only fire when:
+      // 1. User/code explicitly called stop()
+      // 2. A fatal error occurred
+      // Do NOT call recognition.start() here — that triggers a new mic permission popup.
+      // Just clean up state.
       isListeningRef.current = false
       recognitionRef.current = null
       setIsListening(false)
@@ -124,11 +120,10 @@ function useSpeechRecognition() {
 
     recognitionRef.current = recognition
     isListeningRef.current = true
-    hadErrorRef.current = false
-    restartCountRef.current = 0
 
     try {
       recognition.start()
+      console.log('[STT] recognition.start() called')
       setIsListening(true)
     } catch (e: any) {
       onError(`음성 인식을 시작할 수 없습니다: ${e.message}`)
@@ -137,6 +132,7 @@ function useSpeechRecognition() {
   }, [])
 
   const stopListening = useCallback(() => {
+    console.log('[STT] stopListening called')
     isListeningRef.current = false
     if (recognitionRef.current) {
       try { recognitionRef.current.stop() } catch { /* ignore */ }
