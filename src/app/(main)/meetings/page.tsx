@@ -21,93 +21,157 @@ import {
   Download,
 } from 'lucide-react'
 
-// ==================== STT HOOK ====================
-// Restored to original working implementation (commit e4e3442).
-// Only change: use isListeningRef (not isListening state) in onend
-// to avoid stale closure when checking whether to auto-restart.
+// ==================== HYBRID STT APPROACH ====================
+// 1. Web Speech API: real-time preview only (approximate, may have issues — that's OK)
+// 2. MediaRecorder: records actual audio as webm blob
+// 3. On stop: send audio to Whisper (HF API) for accurate transcription
+// Web Speech is fire-and-forget: continuous=true, start once, no restart on end/error.
 
-interface SttResult {
-  transcript: string
-  isFinal: boolean
-}
-
-function useSpeechRecognition() {
-  const [isListening, setIsListening] = useState(false)
-  const [isSupported, setIsSupported] = useState(false)
+// --- Simple Web Speech preview (no restart, no error recovery) ---
+function useSpeechPreview() {
+  const [previewText, setPreviewText] = useState('')
+  const [interimText, setInterimText] = useState('')
+  const [sttStatus, setSttStatus] = useState<'idle' | 'listening' | 'stopped'>('idle')
   const recognitionRef = useRef<any>(null)
-  const isListeningRef = useRef(false)
-  const onResultRef = useRef<((result: SttResult) => void) | null>(null)
-  const onErrorRef = useRef<((error: string) => void) | null>(null)
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      setIsSupported(!!SR)
-    }
-  }, [])
-
-  const startListening = useCallback((language: string, onResult: (result: SttResult) => void, onError: (error: string) => void) => {
+  const start = useCallback((language: string) => {
     if (typeof window === 'undefined') return
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      onError('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.')
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) {
+      setSttStatus('stopped')
       return
     }
 
-    const recognition = new SpeechRecognition()
+    const recognition = new SR()
     recognition.continuous = true
     recognition.interimResults = true
     recognition.lang = language
 
-    onResultRef.current = onResult
-    onErrorRef.current = onError
+    let accumulated = ''
 
     recognition.onresult = (event: any) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i]
-        if (onResultRef.current) {
-          onResultRef.current({
-            transcript: result[0].transcript,
-            isFinal: result.isFinal,
-          })
+        if (event.results[i].isFinal) {
+          accumulated += event.results[i][0].transcript + ' '
+          setPreviewText(accumulated)
+          setInterimText('')
+        } else {
+          setInterimText(event.results[i][0].transcript)
         }
       }
     }
 
-    recognition.onerror = (event: any) => {
-      if (event.error === 'no-speech') return
-      if (onErrorRef.current) {
-        onErrorRef.current(`음성 인식 오류: ${event.error}`)
-      }
+    recognition.onerror = () => {
+      // Don't restart, don't show error — this is just a preview
+      setSttStatus('stopped')
     }
 
     recognition.onend = () => {
-      // Auto-restart if still listening (use ref to avoid stale closure)
-      if (recognitionRef.current && isListeningRef.current) {
-        try {
-          recognition.start()
-        } catch {
-          // ignore restart errors
-        }
-      }
+      // Don't restart — just mark as stopped
+      setSttStatus('stopped')
     }
 
     recognitionRef.current = recognition
-    isListeningRef.current = true
-    recognition.start()
-    setIsListening(true)
+    try {
+      recognition.start()
+      setSttStatus('listening')
+    } catch {
+      setSttStatus('stopped')
+    }
   }, [])
 
-  const stopListening = useCallback(() => {
-    isListeningRef.current = false
+  const stop = useCallback(() => {
     if (recognitionRef.current) {
-      recognitionRef.current.stop()
+      try { recognitionRef.current.stop() } catch { /* ignore */ }
       recognitionRef.current = null
     }
-    setIsListening(false)
+    setSttStatus('stopped')
   }, [])
 
-  return { isListening, isSupported, startListening, stopListening }
+  const reset = useCallback(() => {
+    setPreviewText('')
+    setInterimText('')
+    setSttStatus('idle')
+  }, [])
+
+  return { previewText, interimText, sttStatus, start, stop, reset }
+}
+
+// --- MediaRecorder hook: records audio as webm blob ---
+function useMediaRecorder() {
+  const [isRecording, setIsRecording] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const streamRef = useRef<MediaStream | null>(null)
+
+  const startRecording = useCallback(async (): Promise<boolean> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      })
+
+      chunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data)
+        }
+      }
+
+      mediaRecorderRef.current = mediaRecorder
+      mediaRecorder.start(1000) // collect chunks every 1s
+      setIsRecording(true)
+      return true
+    } catch (err) {
+      console.error('MediaRecorder start failed:', err)
+      return false
+    }
+  }, [])
+
+  const stopRecording = useCallback((): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      const recorder = mediaRecorderRef.current
+      if (!recorder || recorder.state === 'inactive') {
+        resolve(null)
+        return
+      }
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        chunksRef.current = []
+        // Release microphone
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(t => t.stop())
+          streamRef.current = null
+        }
+        mediaRecorderRef.current = null
+        setIsRecording(false)
+        resolve(blob)
+      }
+
+      recorder.stop()
+    })
+  }, [])
+
+  const cleanup = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop() } catch { /* ignore */ }
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+    }
+    mediaRecorderRef.current = null
+    chunksRef.current = []
+    setIsRecording(false)
+  }, [])
+
+  return { isRecording, startRecording, stopRecording, cleanup }
 }
 
 // ==================== RECORDING MODAL ====================
@@ -121,33 +185,23 @@ function RecordingModal({
   onSave: () => void
   userId: string
 }) {
-  const { isListening: sttActive, isSupported, startListening, stopListening } = useSpeechRecognition()
+  const sttPreview = useSpeechPreview()
+  const recorder = useMediaRecorder()
 
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState('ko')
   const [participants, setParticipants] = useState('')
   const [transcript, setTranscript] = useState('')
-  const [interimText, setInterimText] = useState('')
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
-  const [isRecording, setIsRecording] = useState(false)
+  const [phase, setPhase] = useState<'setup' | 'recording' | 'transcribing' | 'done'>('setup')
   const [saving, setSaving] = useState(false)
   const [summarizing, setSummarizing] = useState(false)
+  const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null)
 
   const startTimeRef = useRef<Date | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const transcriptRef = useRef('')
-
-  // Sync recording state if STT stops unexpectedly (e.g., due to error)
-  useEffect(() => {
-    if (isRecording && !sttActive) {
-      setIsRecording(false)
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
-      }
-    }
-  }, [isRecording, sttActive])
+  const audioBlobRef = useRef<Blob | null>(null)
 
   const langOptions = [
     { value: 'ko', label: '한국어' },
@@ -157,52 +211,131 @@ function RecordingModal({
     { value: 'hi-IN', label: 'हिन्दी' },
   ]
 
-  const handleStartRecording = () => {
+  const handleStartRecording = async () => {
     if (!title.trim()) {
       setError('회의 제목을 입력해주세요.')
       return
     }
     setError('')
+
+    // Start MediaRecorder (actual audio recording)
+    const started = await recorder.startRecording()
+    if (!started) {
+      setError('마이크에 접근할 수 없습니다. 브라우저 설정에서 마이크를 허용해주세요.')
+      return
+    }
+
+    // Start Web Speech preview (best-effort, don't care if it fails)
+    sttPreview.start(language)
+
     startTimeRef.current = new Date()
-    setIsRecording(true)
+    setPhase('recording')
 
     timerRef.current = setInterval(() => {
       if (startTimeRef.current) {
         setElapsed(Math.floor((Date.now() - startTimeRef.current.getTime()) / 1000))
       }
     }, 1000)
-
-    startListening(
-      language,
-      (result) => {
-        if (result.isFinal) {
-          transcriptRef.current += result.transcript + ' '
-          setTranscript(transcriptRef.current)
-          setInterimText('')
-        } else {
-          setInterimText(result.transcript)
-        }
-      },
-      (err) => setError(err)
-    )
   }
 
-  const handleStopRecording = () => {
-    stopListening()
-    setIsRecording(false)
+  const handleStopRecording = async () => {
+    // Stop timer
     if (timerRef.current) {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
-  }
 
-  const handleSave = async (withSummary: boolean) => {
-    if (!transcript.trim() && !transcriptRef.current.trim()) {
-      setError('녹음된 내용이 없습니다.')
+    // Stop Web Speech preview
+    sttPreview.stop()
+
+    // Stop MediaRecorder and get audio blob
+    setPhase('transcribing')
+    const audioBlob = await recorder.stopRecording()
+
+    if (!audioBlob || audioBlob.size === 0) {
+      setError('녹음 파일이 비어있습니다.')
+      setPhase('done')
       return
     }
 
-    const finalTranscript = transcriptRef.current || transcript
+    audioBlobRef.current = audioBlob
+    setAudioBlobUrl(URL.createObjectURL(audioBlob))
+
+    // Send to Whisper for accurate transcription
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const formData = new FormData()
+      formData.append('audio', audioBlob, 'recording.webm')
+      formData.append('language', language)
+
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token || ''}`,
+        },
+        body: formData,
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        if (errData.retry) {
+          // Model loading — retry once after delay
+          setError('Whisper 모델 로딩 중... 15초 후 재시도합니다.')
+          await new Promise(r => setTimeout(r, 15000))
+          const retryRes = await fetch('/api/transcribe', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${session?.access_token || ''}` },
+            body: formData,
+          })
+          if (retryRes.ok) {
+            const retryData = await retryRes.json()
+            setTranscript(retryData.text || '')
+            setError('')
+            setPhase('done')
+            return
+          }
+        }
+        // Fallback: use Web Speech preview text
+        const fallbackText = sttPreview.previewText.trim()
+        if (fallbackText) {
+          setTranscript(fallbackText)
+          setError('Whisper 변환 실패 — 실시간 미리보기 텍스트를 사용합니다. 필요 시 수정해주세요.')
+        } else {
+          setError(errData.error || 'Whisper 텍스트 변환에 실패했습니다.')
+        }
+        setPhase('done')
+        return
+      }
+
+      const data = await res.json()
+      setTranscript(data.text || '')
+      setPhase('done')
+    } catch (err: any) {
+      // Fallback to Web Speech preview
+      const fallbackText = sttPreview.previewText.trim()
+      if (fallbackText) {
+        setTranscript(fallbackText)
+        setError('Whisper 변환 실패 — 실시간 미리보기 텍스트를 사용합니다.')
+      } else {
+        setError('텍스트 변환에 실패했습니다: ' + (err.message || ''))
+      }
+      setPhase('done')
+    }
+  }
+
+  const handleDownloadAudio = () => {
+    if (!audioBlobUrl) return
+    const a = document.createElement('a')
+    a.href = audioBlobUrl
+    a.download = `${title.trim() || 'recording'}.webm`
+    a.click()
+  }
+
+  const handleSave = async (withSummary: boolean) => {
+    if (!transcript.trim()) {
+      setError('변환된 텍스트가 없습니다.')
+      return
+    }
 
     if (withSummary) {
       setSummarizing(true)
@@ -225,7 +358,7 @@ function RecordingModal({
         duration_seconds: elapsed,
         language,
         participants: participantList,
-        raw_transcript: finalTranscript,
+        raw_transcript: transcript,
         status: withSummary ? 'summarizing' : 'completed',
       }
 
@@ -238,7 +371,6 @@ function RecordingModal({
       if (insertError) throw insertError
 
       if (withSummary && meeting) {
-        // Call the summarize API
         try {
           const { data: { session } } = await supabase.auth.getSession()
           const res = await fetch('/api/meetings/summarize', {
@@ -249,7 +381,7 @@ function RecordingModal({
             },
             body: JSON.stringify({
               meetingId: meeting.id,
-              transcript: finalTranscript,
+              transcript,
               language,
               title: title.trim(),
               participants: participantList,
@@ -257,18 +389,10 @@ function RecordingModal({
           })
 
           if (!res.ok) {
-            // If summary fails, still save the meeting
-            await supabase
-              .from('meetings')
-              .update({ status: 'completed' })
-              .eq('id', meeting.id)
+            await supabase.from('meetings').update({ status: 'completed' }).eq('id', meeting.id)
           }
         } catch {
-          // If summary API fails, just mark as completed
-          await supabase
-            .from('meetings')
-            .update({ status: 'completed' })
-            .eq('id', meeting.id)
+          await supabase.from('meetings').update({ status: 'completed' }).eq('id', meeting.id)
         }
       }
 
@@ -283,9 +407,11 @@ function RecordingModal({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
-      stopListening()
+      sttPreview.stop()
+      recorder.cleanup()
+      if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl)
     }
-  }, [stopListening])
+  }, [])
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60)
@@ -300,7 +426,7 @@ function RecordingModal({
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-              {isRecording ? '🔴 녹음 중' : '새 회의록'}
+              {phase === 'recording' ? '🔴 녹음 중' : phase === 'transcribing' ? '🔄 텍스트 변환 중...' : '새 회의록'}
             </h2>
             <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
               <X size={20} />
@@ -313,8 +439,8 @@ function RecordingModal({
             </div>
           )}
 
-          {/* Settings (before recording) */}
-          {!isRecording && elapsed === 0 && (
+          {/* Setup Phase */}
+          {phase === 'setup' && (
             <div className="space-y-4 mb-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">회의 제목 *</label>
@@ -349,16 +475,9 @@ function RecordingModal({
                 />
               </div>
 
-              {!isSupported && (
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 text-sm text-yellow-700 dark:text-yellow-400">
-                  이 브라우저는 음성 인식을 지원하지 않습니다. Chrome 브라우저를 사용해주세요.
-                </div>
-              )}
-
               <button
                 onClick={handleStartRecording}
-                disabled={!isSupported}
-                className="w-full flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white font-semibold py-3 rounded-lg transition-all"
+                className="w-full flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white font-semibold py-3 rounded-lg transition-all"
               >
                 <Mic size={20} />
                 녹음 시작
@@ -366,89 +485,134 @@ function RecordingModal({
             </div>
           )}
 
-          {/* Recording Controls */}
-          {(isRecording || elapsed > 0) && (
+          {/* Recording Phase */}
+          {phase === 'recording' && (
             <>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`} />
+                  <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
                   <span className="text-2xl font-mono font-bold text-gray-900 dark:text-white">
                     {formatTime(elapsed)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  {isRecording ? (
-                    <button
-                      onClick={handleStopRecording}
-                      className="flex items-center gap-2 bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 px-4 py-2 rounded-lg font-medium"
-                    >
-                      <Square size={16} />
-                      녹음 중지
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleStartRecording}
-                      className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg font-medium"
-                    >
-                      <Mic size={16} />
-                      다시 녹음
-                    </button>
-                  )}
-                </div>
+                <button
+                  onClick={handleStopRecording}
+                  className="flex items-center gap-2 bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 px-4 py-2 rounded-lg font-medium"
+                >
+                  <Square size={16} />
+                  녹음 중지
+                </button>
               </div>
 
-              {/* Transcript Area */}
+              {/* Real-time preview (Web Speech — approximate) */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  실시간 텍스트 변환
+                  실시간 미리보기 (참고용)
+                  {sttPreview.sttStatus === 'stopped' && (
+                    <span className="ml-2 text-xs text-yellow-500">— 실시간 변환 중단됨</span>
+                  )}
                 </label>
-                <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 min-h-[200px] max-h-[300px] overflow-y-auto">
+                <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 min-h-[150px] max-h-[250px] overflow-y-auto">
                   <p className="text-gray-900 dark:text-white whitespace-pre-wrap">
-                    {transcript}
-                    {interimText && (
-                      <span className="text-gray-400 dark:text-gray-500">{interimText}</span>
+                    {sttPreview.previewText}
+                    {sttPreview.interimText && (
+                      <span className="text-gray-400 dark:text-gray-500">{sttPreview.interimText}</span>
                     )}
                   </p>
-                  {!transcript && !interimText && isRecording && (
-                    <p className="text-gray-400 dark:text-gray-500 italic">말씀해 주세요... 음성이 텍스트로 변환됩니다.</p>
+                  {!sttPreview.previewText && !sttPreview.interimText && (
+                    <p className="text-gray-400 dark:text-gray-500 italic">
+                      {sttPreview.sttStatus === 'listening'
+                        ? '말씀해 주세요... 음성이 텍스트로 변환됩니다.'
+                        : '오디오는 정상 녹음 중입니다. 종료 후 Whisper AI가 정확한 텍스트를 생성합니다.'}
+                    </p>
                   )}
                 </div>
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  녹음 종료 시 Whisper AI가 정확한 텍스트로 변환합니다
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Transcribing Phase */}
+          {phase === 'transcribing' && (
+            <div className="text-center py-12">
+              <Loader size={48} className="mx-auto text-red-500 animate-spin mb-4" />
+              <p className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                Whisper AI로 텍스트 변환 중...
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                녹음 길이에 따라 수초~수십 초 소요됩니다
+              </p>
+            </div>
+          )}
+
+          {/* Done Phase — show final transcript */}
+          {phase === 'done' && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-gray-400" />
+                  <span className="text-2xl font-mono font-bold text-gray-900 dark:text-white">
+                    {formatTime(elapsed)}
+                  </span>
+                </div>
+                {audioBlobUrl && (
+                  <button
+                    onClick={handleDownloadAudio}
+                    className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  >
+                    <Download size={16} />
+                    오디오 다운로드
+                  </button>
+                )}
               </div>
 
-              {/* Manual transcript edit */}
-              {!isRecording && transcript && (
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    텍스트 수정 (필요 시)
-                  </label>
-                  <textarea
-                    value={transcript}
-                    onChange={(e) => { setTranscript(e.target.value); transcriptRef.current = e.target.value }}
-                    rows={6}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none"
-                  />
-                </div>
-              )}
+              {transcript ? (
+                <>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Whisper 변환 결과 (수정 가능)
+                    </label>
+                    <textarea
+                      value={transcript}
+                      onChange={(e) => setTranscript(e.target.value)}
+                      rows={8}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none"
+                    />
+                  </div>
 
-              {/* Save Buttons */}
-              {!isRecording && transcript && (
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => handleSave(false)}
-                    disabled={saving || summarizing}
-                    className="flex-1 flex items-center justify-center gap-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white py-3 rounded-lg font-medium"
-                  >
-                    {saving ? <Loader size={16} className="animate-spin" /> : <Download size={16} />}
-                    원본 저장
-                  </button>
-                  <button
-                    onClick={() => handleSave(true)}
-                    disabled={saving || summarizing}
-                    className="flex-1 flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white py-3 rounded-lg font-medium"
-                  >
-                    {summarizing ? <Loader size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                    AI 정리 + 저장
-                  </button>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleSave(false)}
+                      disabled={saving || summarizing}
+                      className="flex-1 flex items-center justify-center gap-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white py-3 rounded-lg font-medium"
+                    >
+                      {saving ? <Loader size={16} className="animate-spin" /> : <Download size={16} />}
+                      원본 저장
+                    </button>
+                    <button
+                      onClick={() => handleSave(true)}
+                      disabled={saving || summarizing}
+                      className="flex-1 flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white py-3 rounded-lg font-medium"
+                    >
+                      {summarizing ? <Loader size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                      AI 정리 + 저장
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500 dark:text-gray-400 mb-4">변환된 텍스트가 없습니다.</p>
+                  {audioBlobUrl && (
+                    <button
+                      onClick={handleDownloadAudio}
+                      className="inline-flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white px-6 py-2.5 rounded-lg font-medium"
+                    >
+                      <Download size={16} />
+                      오디오 파일 다운로드
+                    </button>
+                  )}
                 </div>
               )}
             </>
