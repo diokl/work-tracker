@@ -16,22 +16,20 @@ export default function ResetPasswordPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    // Check if user has a valid session (from the reset link)
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' && session) {
+        setSessionReady(true)
+      }
+    })
+
+    // Also check existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setSessionReady(true)
-      } else {
-        // Listen for auth state change (recovery flow)
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-          if (event === 'PASSWORD_RECOVERY' && session) {
-            setSessionReady(true)
-          }
-        })
-        return () => subscription.unsubscribe()
       }
-    }
-    checkSession()
+    })
+
+    return () => subscription.unsubscribe()
   }, [supabase.auth])
 
   const handleResetPassword = async (e: React.FormEvent) => {
