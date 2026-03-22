@@ -2,78 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Profile, Task, Project, DaySummary } from '@/lib/types'
-import type { User } from '@supabase/supabase-js'
+import type { Task, Project, DaySummary } from '@/lib/types'
 
-// Module-level singleton - created once, reused everywhere
+// Re-export useAuth from context so all existing imports keep working
+export { useAuth } from '@/lib/auth-context'
+
+// Module-level singleton
 const supabase = createClient()
-
-export function useAuth() {
-  const [user, setUser] = useState<User | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let mounted = true
-
-    const fetchProfile = async (userId: string) => {
-      try {
-        const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
-        if (mounted) setProfile(data)
-      } catch (e) {
-        console.warn('Failed to fetch profile:', e)
-      }
-    }
-
-    // 1. Get current session immediately
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return
-      const currentUser = session?.user ?? null
-      setUser(currentUser)
-      if (currentUser) {
-        fetchProfile(currentUser.id).finally(() => {
-          if (mounted) setLoading(false)
-        })
-      } else {
-        setLoading(false)
-      }
-    }).catch(() => {
-      if (mounted) setLoading(false)
-    })
-
-    // 2. Listen for auth changes (sign in, sign out, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return
-      if (event === 'SIGNED_IN') {
-        setUser(session?.user ?? null)
-        if (session?.user) await fetchProfile(session.user.id)
-        setLoading(false)
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null)
-        setProfile(null)
-      } else if (event === 'TOKEN_REFRESHED') {
-        setUser(session?.user ?? null)
-      }
-    })
-
-    // 3. Safety timeout
-    const timeout = setTimeout(() => {
-      if (mounted && loading) {
-        console.warn('useAuth: safety timeout fired')
-        setLoading(false)
-      }
-    }, 5000)
-
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-      clearTimeout(timeout)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return { user, profile, loading, supabase }
-}
 
 export function useTasks(userId: string | undefined, date?: string) {
   const [tasks, setTasks] = useState<Task[]>([])
