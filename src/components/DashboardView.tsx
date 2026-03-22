@@ -18,11 +18,11 @@ export default function DashboardView({ profile, userId }: DashboardViewProps) {
   const { projects } = useProjects(userId)
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [showForm, setShowForm] = useState(false)
-  const supabase = createClient()
 
   // Fetch approved profiles for sharing
   useEffect(() => {
     const fetchProfiles = async () => {
+      const supabase = createClient()
       const { data } = await supabase
         .from('profiles')
         .select('*')

@@ -19,7 +19,6 @@ export default function CalendarPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [profilesLoading, setProfilesLoading] = useState(true)
 
-  const supabase = createClient()
   const summaries = useMonthSummary(user?.id, year, month)
   const { tasks, refetch: refetchTasks } = useTasks(user?.id, selectedDate || undefined)
   const { projects } = useProjects(user?.id)
@@ -28,6 +27,7 @@ export default function CalendarPage() {
   useEffect(() => {
     const fetchProfiles = async () => {
       setProfilesLoading(true)
+      const supabase = createClient()
       const { data } = await supabase
         .from('profiles')
         .select('*')

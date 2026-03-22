@@ -52,8 +52,7 @@ export function useAuth() {
 
     // Safety timeout - if INITIAL_SESSION never fires, stop loading
     const timeout = setTimeout(() => {
-      if (mounted && loading) {
-        console.warn('Auth timeout - forcing loading=false')
+      if (mounted) {
         setLoading(false)
       }
     }, 5000)
@@ -63,7 +62,8 @@ export function useAuth() {
       subscription.unsubscribe()
       clearTimeout(timeout)
     }
-  }, [supabase, loading])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return { user, profile, loading, supabase }
 }
@@ -71,18 +71,18 @@ export function useAuth() {
 export function useTasks(userId: string | undefined, date?: string) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(false)
-  const supabase = createClient()
 
   const fetchTasks = useCallback(async () => {
     if (!userId) return
     setLoading(true)
+    const supabase = createClient()
     let query = supabase.from('tasks').select('*, project:projects(id, name)').eq('user_id', userId)
     if (date) query = query.eq('date', date)
     query = query.order('created_at', { ascending: false })
     const { data } = await query
     setTasks(data || [])
     setLoading(false)
-  }, [userId, date, supabase])
+  }, [userId, date])
 
   useEffect(() => { fetchTasks() }, [fetchTasks])
   return { tasks, loading, refetch: fetchTasks }
@@ -90,10 +90,10 @@ export function useTasks(userId: string | undefined, date?: string) {
 
 export function useMonthSummary(userId: string | undefined, year: number, month: number) {
   const [summaries, setSummaries] = useState<DaySummary[]>([])
-  const supabase = createClient()
 
   useEffect(() => {
     if (!userId) return
+    const supabase = createClient()
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`
     const endDate = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
 
@@ -117,7 +117,7 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
         })
         setSummaries(Array.from(map.values()))
       })
-  }, [userId, year, month, supabase])
+  }, [userId, year, month])
 
   return summaries
 }
@@ -125,15 +125,15 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
 export function useProjects(userId: string | undefined) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
-  const supabase = createClient()
 
   const fetchProjects = useCallback(async () => {
     if (!userId) return
     setLoading(true)
+    const supabase = createClient()
     const { data } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false })
     setProjects(data || [])
     setLoading(false)
-  }, [userId, supabase])
+  }, [userId])
 
   useEffect(() => { fetchProjects() }, [fetchProjects])
   return { projects, loading, refetch: fetchProjects }

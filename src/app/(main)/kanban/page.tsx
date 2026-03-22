@@ -218,7 +218,6 @@ function KanbanColumn({
 
 export default function KanbanPage() {
   const { user } = useAuth()
-  const supabase = createClient()
 
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
@@ -234,6 +233,7 @@ export default function KanbanPage() {
     if (!user?.id) return
 
     const fetchProjects = async () => {
+      const supabase = createClient()
       const { data } = await supabase
         .from('projects')
         .select('id, name')
@@ -244,13 +244,14 @@ export default function KanbanPage() {
     }
 
     fetchProjects()
-  }, [user?.id, supabase])
+  }, [user?.id])
 
   // Fetch approved profiles for sharing
   useEffect(() => {
     if (!user?.id) return
 
     const fetchProfiles = async () => {
+      const supabase = createClient()
       const { data } = await supabase
         .from('profiles')
         .select('*')
@@ -262,7 +263,7 @@ export default function KanbanPage() {
     }
 
     fetchProfiles()
-  }, [user?.id, supabase])
+  }, [user?.id])
 
   // Fetch tasks
   useEffect(() => {
@@ -271,6 +272,7 @@ export default function KanbanPage() {
     const fetchTasks = async () => {
       setLoading(true)
       try {
+        const supabase = createClient()
         const range = getDateRange(dateRange)
         let query = supabase
           .from('tasks')
@@ -295,7 +297,7 @@ export default function KanbanPage() {
     }
 
     fetchTasks()
-  }, [user?.id, dateRange, selectedProject, supabase])
+  }, [user?.id, dateRange, selectedProject])
 
   // Group tasks by status
   const tasksByStatus = STATUSES.reduce(
@@ -330,6 +332,7 @@ export default function KanbanPage() {
     )
 
     // Update in Supabase
+    const supabase = createClient()
     const { error } = await supabase
       .from('tasks')
       .update({ status: newStatus })
@@ -360,6 +363,7 @@ export default function KanbanPage() {
   const handleTaskSave = async () => {
     // Refetch tasks after save
     if (user?.id) {
+      const supabase = createClient()
       const range = getDateRange(dateRange)
       let query = supabase
         .from('tasks')

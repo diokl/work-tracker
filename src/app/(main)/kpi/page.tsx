@@ -569,7 +569,6 @@ function KpiCard({
 
 export default function KpiPage() {
   const { user, profile } = useAuth()
-  const supabase = createClient()
 
   const [kpis, setKpis] = useState<KpiDefinition[]>([])
   const [teamKpis, setTeamKpis] = useState<Record<string, { profile: Profile; kpis: KpiDefinition[] }>>({})
@@ -587,6 +586,7 @@ export default function KpiPage() {
       return
     }
     setLoading(true)
+    const supabase = createClient()
     try {
       // Fetch my KPIs
       const { data: myKpis } = await supabase
@@ -628,7 +628,8 @@ export default function KpiPage() {
     } finally {
       setLoading(false)
     }
-  }, [user?.id, evalYear, supabase])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, evalYear])
 
   useEffect(() => {
     fetchKpis()
@@ -636,6 +637,7 @@ export default function KpiPage() {
 
   const handleDelete = async (kpiId: string) => {
     if (!confirm('이 KPI를 삭제하시겠습니까?')) return
+    const supabase = createClient()
     await supabase.from('kpi_definitions').delete().eq('id', kpiId)
     fetchKpis()
   }
