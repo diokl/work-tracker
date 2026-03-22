@@ -46,15 +46,29 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }
 
   if (!user) {
-    router.push('/login')
-    return null
+    // Clear any stale session cookies to prevent redirect loop
+    const clearAndRedirect = async () => {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      window.location.href = '/login'
+    }
+    clearAndRedirect()
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2"></div>
+          <p className="text-[var(--text-secondary)]">로그인 페이지로 이동 중...</p>
+        </div>
+      </div>
+    )
   }
 
   const handleLogout = async () => {
     const { createClient } = await import('@/lib/supabase/client')
     const supabase = createClient()
     await supabase.auth.signOut()
-    router.push('/login')
+    window.location.href = '/login'
   }
 
   const initials = profile?.name
