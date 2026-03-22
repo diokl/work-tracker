@@ -23,7 +23,6 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData()
     const audioFile = formData.get('audio') as File | null
-    const _language = (formData.get('language') as string) || 'ko' // reserved for future use
 
     if (!audioFile) {
       return NextResponse.json({ error: 'No audio file provided' }, { status: 400 })
