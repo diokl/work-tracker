@@ -26,9 +26,11 @@ import {
 // NO getUserMedia() — SpeechRecognition accesses the mic directly.
 // getUserMedia() would conflict by holding the mic and triggering a separate permission popup.
 
-interface SttResult {
-  transcript: string
-  isFinal: boolean
+// SttUpdate: each update contains the COMPLETE rebuilt transcript,
+// not incremental fragments. This prevents duplicate accumulation.
+interface SttUpdate {
+  finalTranscript: string   // all finalized sentences joined
+  interimTranscript: string // current in-progress recognition
 }
 
 function useSpeechRecognition() {
@@ -36,7 +38,12 @@ function useSpeechRecognition() {
   const [isSupported, setIsSupported] = useState(false)
   const recognitionRef = useRef<any>(null)
   const isListeningRef = useRef(false)
-  const onResultRef = useRef<((result: SttResult) => void) | null>(null)
+  const hadErrorRef = useRef(false)
+  const restartCountRef = useRef(0)
+  const languageRef = useRef('ko')
+  // Store finalized text from previous recognition sessions (before Chrome auto-restart)
+  const previousFinalRef = useRef('')
+  const onUpdateRef = useRef<((update: SttUpdate) => void) | null>(null)
   const onErrorRef = useRef<((error: string) => void) | null>(null)
 
   useEffect(() => {
@@ -46,55 +53,51 @@ function useSpeechRecognition() {
     }
   }, [])
 
-  const startListening = useCallback((language: string, onResult: (result: SttResult) => void, onError: (error: string) => void) => {
-    if (typeof window === 'undefined') return
+  const createRecognition = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      onError('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.')
-      return
-    }
-
-    // Stop any existing recognition before starting a new one
-    if (recognitionRef.current) {
-      isListeningRef.current = false
-      try { recognitionRef.current.stop() } catch { /* ignore */ }
-      recognitionRef.current = null
-    }
+    if (!SpeechRecognition) return null
 
     const recognition = new SpeechRecognition()
-    // continuous=true: recognition keeps listening until explicitly stopped.
-    // This prevents onend from firing after each utterance, which would require
-    // calling start() again — and each start() triggers a new mic permission popup.
     recognition.continuous = true
     recognition.interimResults = true
-    recognition.lang = language
-    // Limit max alternatives to reduce duplicate processing
+    recognition.lang = languageRef.current
     recognition.maxAlternatives = 1
 
-    onResultRef.current = onResult
-    onErrorRef.current = onError
-
     recognition.onresult = (event: any) => {
-      // Only process results from resultIndex onward to avoid re-processing old results
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i]
-        if (onResultRef.current) {
-          onResultRef.current({
-            transcript: result[0].transcript,
-            isFinal: result.isFinal,
-          })
+      // Rebuild COMPLETE transcript from all results every time.
+      // This avoids duplication — we never incrementally append.
+      let sessionFinal = ''
+      let interim = ''
+
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          sessionFinal += event.results[i][0].transcript + ' '
+        } else {
+          interim += event.results[i][0].transcript
         }
+      }
+
+      // Track this session's finals so we can preserve them on Chrome auto-restart.
+      // When onend fires and we create a new recognition instance, its results
+      // array resets — previousFinalRef carries over text from all prior sessions.
+      const fullFinal = previousFinalRef.current + sessionFinal
+      // Store for the restart handler to pick up
+      ;(recognition as any).__sessionFinal = sessionFinal
+
+      if (onUpdateRef.current) {
+        onUpdateRef.current({
+          finalTranscript: fullFinal.trim(),
+          interimTranscript: interim,
+        })
       }
     }
 
     recognition.onerror = (event: any) => {
       console.log('[STT] onerror:', event.error)
-      // no-speech: Chrome fires this when silence is detected — harmless with continuous=true
       if (event.error === 'no-speech') return
-      // aborted: user or code called stop() — not an error
       if (event.error === 'aborted') return
 
-      // Real error — report to user
+      hadErrorRef.current = true
       if (onErrorRef.current) {
         const messages: Record<string, string> = {
           'not-allowed': '마이크 권한이 거부되었습니다. 브라우저 주소창 옆 자물쇠 아이콘에서 마이크를 허용해주세요.',
@@ -107,15 +110,117 @@ function useSpeechRecognition() {
     }
 
     recognition.onend = () => {
-      console.log('[STT] onend fired, isListening:', isListeningRef.current)
-      // With continuous=true, onend should only fire when:
-      // 1. User/code explicitly called stop()
-      // 2. A fatal error occurred
-      // Do NOT call recognition.start() here — that triggers a new mic permission popup.
-      // Just clean up state.
+      console.log('[STT] onend fired, isListening:', isListeningRef.current, 'hadError:', hadErrorRef.current, 'restarts:', restartCountRef.current)
+
+      // If user stopped or error occurred, don't restart
+      if (!isListeningRef.current || hadErrorRef.current || restartCountRef.current >= 50) {
+        isListeningRef.current = false
+        recognitionRef.current = null
+        setIsListening(false)
+        return
+      }
+
+      // Chrome kills continuous SpeechRecognition after ~60s-5min.
+      // We must restart, but ONLY if mic permission is already 'granted'
+      // to avoid showing the permission popup again.
+
+      // Save this session's finalized text before restart
+      const sessionFinal = (recognition as any).__sessionFinal || ''
+      previousFinalRef.current += sessionFinal
+
+      // Check mic permission before restarting
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: 'microphone' as PermissionName }).then((status) => {
+          if (status.state === 'granted' && isListeningRef.current) {
+            restartCountRef.current++
+            console.log('[STT] Auto-restart #' + restartCountRef.current + ' (permission: granted)')
+
+            // Small delay to avoid rapid-fire restarts
+            setTimeout(() => {
+              if (!isListeningRef.current) return
+              const newRecognition = createRecognition()
+              if (newRecognition) {
+                recognitionRef.current = newRecognition
+                try {
+                  newRecognition.start()
+                  console.log('[STT] Restarted successfully')
+                } catch (e) {
+                  console.log('[STT] Restart failed:', e)
+                  isListeningRef.current = false
+                  recognitionRef.current = null
+                  setIsListening(false)
+                }
+              }
+            }, 300)
+          } else {
+            console.log('[STT] Mic permission not granted, stopping. State:', status.state)
+            isListeningRef.current = false
+            recognitionRef.current = null
+            setIsListening(false)
+          }
+        }).catch(() => {
+          // permissions API not available — try restart anyway (most browsers grant silently)
+          restartCountRef.current++
+          setTimeout(() => {
+            if (!isListeningRef.current) return
+            const newRecognition = createRecognition()
+            if (newRecognition) {
+              recognitionRef.current = newRecognition
+              try { newRecognition.start() } catch {
+                isListeningRef.current = false
+                recognitionRef.current = null
+                setIsListening(false)
+              }
+            }
+          }, 300)
+        })
+      } else {
+        // No permissions API — try restart (Chrome mobile etc.)
+        restartCountRef.current++
+        setTimeout(() => {
+          if (!isListeningRef.current) return
+          const newRecognition = createRecognition()
+          if (newRecognition) {
+            recognitionRef.current = newRecognition
+            try { newRecognition.start() } catch {
+              isListeningRef.current = false
+              recognitionRef.current = null
+              setIsListening(false)
+            }
+          }
+        }, 300)
+      }
+    }
+
+    return recognition
+  }, [])
+
+  const startListening = useCallback((language: string, onUpdate: (update: SttUpdate) => void, onError: (error: string) => void) => {
+    if (typeof window === 'undefined') return
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      onError('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.')
+      return
+    }
+
+    // Stop any existing recognition
+    if (recognitionRef.current) {
       isListeningRef.current = false
+      try { recognitionRef.current.stop() } catch { /* ignore */ }
       recognitionRef.current = null
-      setIsListening(false)
+    }
+
+    languageRef.current = language
+    previousFinalRef.current = ''
+    hadErrorRef.current = false
+    restartCountRef.current = 0
+    onUpdateRef.current = onUpdate
+    onErrorRef.current = onError
+
+    const recognition = createRecognition()
+    if (!recognition) {
+      onError('음성 인식을 초기화할 수 없습니다.')
+      return
     }
 
     recognitionRef.current = recognition
@@ -129,7 +234,7 @@ function useSpeechRecognition() {
       onError(`음성 인식을 시작할 수 없습니다: ${e.message}`)
       recognitionRef.current = null
     }
-  }, [])
+  }, [createRecognition])
 
   const stopListening = useCallback(() => {
     console.log('[STT] stopListening called')
@@ -208,14 +313,12 @@ function RecordingModal({
 
     startListening(
       language,
-      (result) => {
-        if (result.isFinal) {
-          transcriptRef.current += result.transcript + ' '
-          setTranscript(transcriptRef.current)
-          setInterimText('')
-        } else {
-          setInterimText(result.transcript)
-        }
+      (update) => {
+        // update.finalTranscript = complete rebuilt text (no duplication possible)
+        // update.interimTranscript = current in-progress recognition
+        transcriptRef.current = update.finalTranscript
+        setTranscript(update.finalTranscript)
+        setInterimText(update.interimTranscript)
       },
       (err) => setError(err)
     )
