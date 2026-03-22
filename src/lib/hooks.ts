@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile, Task, Project, DaySummary } from '@/lib/types'
 import type { User } from '@supabase/supabase-js'
@@ -9,32 +9,58 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
+  const supabase = supabaseRef.current
 
   useEffect(() => {
+    let mounted = true
+
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-      if (user) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-        setProfile(data)
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser()
+        if (!mounted) return
+
+        if (error) {
+          console.warn('Auth getUser error:', error.message)
+          setUser(null)
+          setProfile(null)
+          setLoading(false)
+          return
+        }
+
+        setUser(user)
+        if (user) {
+          const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+          if (mounted) setProfile(data)
+        }
+      } catch (err) {
+        console.warn('Auth error:', err)
+        if (mounted) {
+          setUser(null)
+          setProfile(null)
+        }
+      } finally {
+        if (mounted) setLoading(false)
       }
-      setLoading(false)
     }
     getUser()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return
       setUser(session?.user ?? null)
       if (session?.user) {
         const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
-        setProfile(data)
+        if (mounted) setProfile(data)
       } else {
         setProfile(null)
       }
     })
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [supabase])
 
   return { user, profile, loading, supabase }
 }
@@ -53,7 +79,7 @@ export function useTasks(userId: string | undefined, date?: string) {
     const { data } = await query
     setTasks(data || [])
     setLoading(false)
-  }, [userId, date])
+  }, [userId, date, supabase])
 
   useEffect(() => { fetchTasks() }, [fetchTasks])
   return { tasks, loading, refetch: fetchTasks }
@@ -88,7 +114,7 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
         })
         setSummaries(Array.from(map.values()))
       })
-  }, [userId, year, month])
+  }, [userId, year, month, supabase])
 
   return summaries
 }
@@ -104,7 +130,7 @@ export function useProjects(userId: string | undefined) {
     const { data } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false })
     setProjects(data || [])
     setLoading(false)
-  }, [userId])
+  }, [userId, supabase])
 
   useEffect(() => { fetchProjects() }, [fetchProjects])
   return { projects, loading, refetch: fetchProjects }

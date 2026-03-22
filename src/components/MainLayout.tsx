@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   LayoutDashboard,
@@ -16,6 +16,7 @@ import {
   Target,
 } from 'lucide-react'
 import { useAuth } from '@/lib/hooks'
+import { createClient } from '@/lib/supabase/client'
 import ThemeToggle from './ThemeToggle'
 
 const navItems = [
@@ -32,41 +33,32 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, profile, loading } = useAuth()
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2"></div>
-          <p className="text-[var(--text-secondary)]">로딩중...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    // Clear any stale session cookies to prevent redirect loop
-    const clearAndRedirect = async () => {
-      const { createClient } = await import('@/lib/supabase/client')
-      const supabase = createClient()
-      await supabase.auth.signOut()
-      window.location.href = '/login'
+  useEffect(() => {
+    if (!loading && !user) {
+      const clearAndRedirect = async () => {
+        const supabase = createClient()
+        await supabase.auth.signOut()
+        window.location.href = '/login'
+      }
+      clearAndRedirect()
     }
-    clearAndRedirect()
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2"></div>
-          <p className="text-[var(--text-secondary)]">로그인 페이지로 이동 중...</p>
-        </div>
-      </div>
-    )
-  }
+  }, [loading, user])
 
   const handleLogout = async () => {
-    const { createClient } = await import('@/lib/supabase/client')
     const supabase = createClient()
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  if (loading || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2"></div>
+          <p className="text-[var(--text-secondary)]">{loading ? '로딩중...' : '로그인 페이지로 이동 중...'}</p>
+        </div>
+      </div>
+    )
   }
 
   const initials = profile?.name
