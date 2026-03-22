@@ -17,12 +17,17 @@ export function useTasks(userId: string | undefined, date?: string) {
   const fetchTasks = useCallback(async () => {
     if (!userId) return
     setLoading(true)
-    let query = supabase.from('tasks').select('*, project:projects(id, name)').eq('user_id', userId)
-    if (date) query = query.eq('date', date)
-    query = query.order('created_at', { ascending: false })
-    const { data } = await query
-    setTasks(data || [])
-    setLoading(false)
+    try {
+      let query = supabase.from('tasks').select('*, project:projects(id, name)').eq('user_id', userId)
+      if (date) query = query.eq('date', date)
+      query = query.order('created_at', { ascending: false })
+      const { data } = await query
+      setTasks(data || [])
+    } catch (e) {
+      console.error('fetchTasks error:', e)
+    } finally {
+      setLoading(false)
+    }
   }, [userId, date])
 
   useEffect(() => { fetchTasks() }, [fetchTasks])
@@ -68,10 +73,18 @@ export function useProjects(userId: string | undefined) {
 
   const fetchProjects = useCallback(async () => {
     if (!userId) return
+    console.log('[useProjects] fetch start, userId:', userId)
     setLoading(true)
-    const { data } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false })
-    setProjects(data || [])
-    setLoading(false)
+    try {
+      const { data, error } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false })
+      console.log('[useProjects] fetch done, count:', data?.length, 'error:', error?.message)
+      setProjects(data || [])
+    } catch (e) {
+      console.error('[useProjects] fetch exception:', e)
+    } finally {
+      setLoading(false)
+      console.log('[useProjects] loading=false')
+    }
   }, [userId])
 
   useEffect(() => { fetchProjects() }, [fetchProjects])

@@ -34,15 +34,20 @@ export default function PersonalView({ userId }: PersonalViewProps) {
   const fetchTasks = async () => {
     if (!userId) return
     setLoading(true)
-    const { data } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_private', true)
-      .order('date', { ascending: false })
-      .order('created_at', { ascending: false })
-    setTasks(data || [])
-    setLoading(false)
+    try {
+      const { data } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_private', true)
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false })
+      setTasks(data || [])
+    } catch (e) {
+      console.error('PersonalView fetchTasks error:', e)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const fetchProjects = async () => {
