@@ -6,17 +6,13 @@ import { createClient } from '@/lib/supabase/client'
 import type { Meeting, ActionItem } from '@/lib/types'
 import {
   Mic,
-  MicOff,
   Square,
-  Play,
   Plus,
   Trash2,
   FileText,
   Clock,
   Users,
   Globe,
-  ChevronDown,
-  ChevronUp,
   Loader,
   X,
   Languages,
@@ -116,7 +112,7 @@ function RecordingModal({
   userId: string
 }) {
   const supabase = createClient()
-  const { isListening, isSupported, startListening, stopListening } = useSpeechRecognition()
+  const { isSupported, startListening, stopListening } = useSpeechRecognition()
 
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState('ko')
