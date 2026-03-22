@@ -21,81 +21,10 @@ import {
   Download,
 } from 'lucide-react'
 
-// ==================== HYBRID STT APPROACH ====================
-// 1. Web Speech API: real-time preview only (approximate, may have issues — that's OK)
-// 2. MediaRecorder: records actual audio as webm blob
-// 3. On stop: send audio to Whisper (HF API) for accurate transcription
-// Web Speech is fire-and-forget: continuous=true, start once, no restart on end/error.
-
-// --- Simple Web Speech preview (no restart, no error recovery) ---
-function useSpeechPreview() {
-  const [previewText, setPreviewText] = useState('')
-  const [interimText, setInterimText] = useState('')
-  const [sttStatus, setSttStatus] = useState<'idle' | 'listening' | 'stopped'>('idle')
-  const recognitionRef = useRef<any>(null)
-
-  const start = useCallback((language: string) => {
-    if (typeof window === 'undefined') return
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SR) {
-      setSttStatus('stopped')
-      return
-    }
-
-    const recognition = new SR()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = language
-
-    let accumulated = ''
-
-    recognition.onresult = (event: any) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          accumulated += event.results[i][0].transcript + ' '
-          setPreviewText(accumulated)
-          setInterimText('')
-        } else {
-          setInterimText(event.results[i][0].transcript)
-        }
-      }
-    }
-
-    recognition.onerror = () => {
-      // Don't restart, don't show error — this is just a preview
-      setSttStatus('stopped')
-    }
-
-    recognition.onend = () => {
-      // Don't restart — just mark as stopped
-      setSttStatus('stopped')
-    }
-
-    recognitionRef.current = recognition
-    try {
-      recognition.start()
-      setSttStatus('listening')
-    } catch {
-      setSttStatus('stopped')
-    }
-  }, [])
-
-  const stop = useCallback(() => {
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop() } catch { /* ignore */ }
-      recognitionRef.current = null
-    }
-    setSttStatus('stopped')
-  }, [])
-
-  const reset = useCallback(() => {
-    setPreviewText('')
-    setInterimText('')
-    setSttStatus('idle')
-  }, [])
-
-  return { previewText, interimText, sttStatus, start, stop, reset }
-}
+// ==================== RECORDING APPROACH ====================
+// MediaRecorder only — no SpeechRecognition at all.
+// getUserMedia() for mic access (one permission popup), record as webm,
+// then Whisper API for accurate transcription after recording stops.
 
 // --- MediaRecorder hook: records audio as webm blob ---
 function useMediaRecorder() {
@@ -185,7 +114,6 @@ function RecordingModal({
   onSave: () => void
   userId: string
 }) {
-  const sttPreview = useSpeechPreview()
   const recorder = useMediaRecorder()
 
   const [title, setTitle] = useState('')
@@ -225,9 +153,6 @@ function RecordingModal({
       return
     }
 
-    // Start Web Speech preview (best-effort, don't care if it fails)
-    sttPreview.start(language)
-
     startTimeRef.current = new Date()
     setPhase('recording')
 
@@ -244,9 +169,6 @@ function RecordingModal({
       clearInterval(timerRef.current)
       timerRef.current = null
     }
-
-    // Stop Web Speech preview
-    sttPreview.stop()
 
     // Stop MediaRecorder and get audio blob
     setPhase('transcribing')
@@ -295,14 +217,7 @@ function RecordingModal({
             return
           }
         }
-        // Fallback: use Web Speech preview text
-        const fallbackText = sttPreview.previewText.trim()
-        if (fallbackText) {
-          setTranscript(fallbackText)
-          setError('Whisper 변환 실패 — 실시간 미리보기 텍스트를 사용합니다. 필요 시 수정해주세요.')
-        } else {
-          setError(errData.error || 'Whisper 텍스트 변환에 실패했습니다.')
-        }
+        setError(errData.error || 'Whisper 텍스트 변환에 실패했습니다. 오디오 파일을 다운로드해서 확인해주세요.')
         setPhase('done')
         return
       }
@@ -311,14 +226,7 @@ function RecordingModal({
       setTranscript(data.text || '')
       setPhase('done')
     } catch (err: any) {
-      // Fallback to Web Speech preview
-      const fallbackText = sttPreview.previewText.trim()
-      if (fallbackText) {
-        setTranscript(fallbackText)
-        setError('Whisper 변환 실패 — 실시간 미리보기 텍스트를 사용합니다.')
-      } else {
-        setError('텍스트 변환에 실패했습니다: ' + (err.message || ''))
-      }
+      setError('텍스트 변환에 실패했습니다: ' + (err.message || ''))
       setPhase('done')
     }
   }
@@ -407,7 +315,6 @@ function RecordingModal({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
-      sttPreview.stop()
       recorder.cleanup()
       if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl)
     }
@@ -504,32 +411,17 @@ function RecordingModal({
                 </button>
               </div>
 
-              {/* Real-time preview (Web Speech — approximate) */}
+              {/* Recording status */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  실시간 미리보기 (참고용)
-                  {sttPreview.sttStatus === 'stopped' && (
-                    <span className="ml-2 text-xs text-yellow-500">— 실시간 변환 중단됨</span>
-                  )}
-                </label>
-                <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 min-h-[150px] max-h-[250px] overflow-y-auto">
-                  <p className="text-gray-900 dark:text-white whitespace-pre-wrap">
-                    {sttPreview.previewText}
-                    {sttPreview.interimText && (
-                      <span className="text-gray-400 dark:text-gray-500">{sttPreview.interimText}</span>
-                    )}
+                <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 text-center">
+                  <Mic size={32} className="mx-auto text-red-500 mb-3 animate-pulse" />
+                  <p className="text-gray-900 dark:text-white font-medium mb-1">
+                    녹음 중입니다...
                   </p>
-                  {!sttPreview.previewText && !sttPreview.interimText && (
-                    <p className="text-gray-400 dark:text-gray-500 italic">
-                      {sttPreview.sttStatus === 'listening'
-                        ? '말씀해 주세요... 음성이 텍스트로 변환됩니다.'
-                        : '오디오는 정상 녹음 중입니다. 종료 후 Whisper AI가 정확한 텍스트를 생성합니다.'}
-                    </p>
-                  )}
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    회의가 끝나면 녹음 중지를 누르세요. Whisper AI가 정확한 텍스트로 변환합니다.
+                  </p>
                 </div>
-                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                  녹음 종료 시 Whisper AI가 정확한 텍스트로 변환합니다
-                </p>
               </div>
             </>
           )}
