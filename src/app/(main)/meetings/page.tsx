@@ -31,15 +31,19 @@ function useSpeechRecognition() {
   const [isListening, setIsListening] = useState(false)
   const [isSupported, setIsSupported] = useState(false)
   const recognitionRef = useRef<any>(null)
+  const isListeningRef = useRef(false)
   const onResultRef = useRef<((result: SttResult) => void) | null>(null)
   const onErrorRef = useRef<((error: string) => void) | null>(null)
 
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    setIsSupported(!!SpeechRecognition)
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      setIsSupported(!!SpeechRecognition)
+    }
   }, [])
 
   const startListening = useCallback((language: string, onResult: (result: SttResult) => void, onError: (error: string) => void) => {
+    if (typeof window === 'undefined') return
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (!SpeechRecognition) {
       onError('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.')
@@ -74,8 +78,8 @@ function useSpeechRecognition() {
     }
 
     recognition.onend = () => {
-      // Auto-restart if still listening
-      if (recognitionRef.current && isListening) {
+      // Auto-restart if still listening (use ref to avoid stale closure)
+      if (recognitionRef.current && isListeningRef.current) {
         try {
           recognition.start()
         } catch {
@@ -85,11 +89,13 @@ function useSpeechRecognition() {
     }
 
     recognitionRef.current = recognition
+    isListeningRef.current = true
     recognition.start()
     setIsListening(true)
-  }, [isListening])
+  }, [])
 
   const stopListening = useCallback(() => {
+    isListeningRef.current = false
     if (recognitionRef.current) {
       recognitionRef.current.stop()
       recognitionRef.current = null
@@ -709,7 +715,6 @@ function MeetingCard({ meeting, onClick }: { meeting: Meeting; onClick: () => vo
 
 export default function MeetingsPage() {
   const { user } = useAuth()
-  const supabase = createClient()
 
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
@@ -722,19 +727,23 @@ export default function MeetingsPage() {
       return
     }
     try {
-      const { data } = await supabase
+      const supabase = createClient()
+      const { data, error } = await supabase
         .from('meetings')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
+      if (error) {
+        console.warn('Meetings fetch error:', error.message)
+      }
       setMeetings(data || [])
     } catch (err) {
       console.warn('Failed to fetch meetings:', err)
     } finally {
       setLoading(false)
     }
-  }, [user?.id, supabase])
+  }, [user?.id])
 
   useEffect(() => { fetchMeetings() }, [fetchMeetings])
 
