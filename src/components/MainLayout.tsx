@@ -83,7 +83,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center text-white font-bold text-sm">
               W
             </div>
-            <span className="font-bold text-lg hidden sm:inline">WorkLog</span>
+            <span className="font-bold text-lg">WorkLog</span>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -105,7 +105,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 onClick={() => setSidebarOpen(false)}
               >
                 <Icon size={20} className="group-hover:text-primary-600" />
-                <span className="hidden sm:inline text-sm font-medium">
+                <span className="text-sm font-medium">
                   {item.label}
                 </span>
               </Link>
@@ -122,7 +122,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 onClick={() => setSidebarOpen(false)}
               >
                 <Shield size={20} className="group-hover:text-accent-600" />
-                <span className="hidden sm:inline text-sm font-medium">관리자</span>
+                <span className="text-sm font-medium">관리자</span>
               </Link>
             </>
           )}
@@ -134,7 +134,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center text-primary-700 dark:text-primary-300 font-bold text-sm flex-shrink-0">
               {initials}
             </div>
-            <div className="hidden sm:block min-w-0">
+            <div className="min-w-0">
               <p className="text-sm font-medium text-[var(--text)] truncate">
                 {profile?.name}
               </p>
@@ -152,7 +152,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               className="flex-1 px-3 py-2 rounded-lg bg-accent-50 dark:bg-accent-950 text-accent-600 dark:text-accent-400 hover:bg-accent-100 dark:hover:bg-accent-900 transition-colors text-sm font-medium flex items-center justify-center gap-2"
             >
               <LogOut size={16} />
-              <span className="hidden sm:inline">로그아웃</span>
+              <span>로그아웃</span>
             </button>
           </div>
         </div>

@@ -189,7 +189,7 @@ function PendingApprovalsTab() {
             >
               {actionLoading[approval.id] && <Loader className="w-4 h-4 animate-spin" />}
               <Check className="w-4 h-4" />
-              <span className="hidden sm:inline">승인</span>
+              <span>승인</span>
             </button>
             <button
               onClick={() => handleReject(approval)}
@@ -198,7 +198,7 @@ function PendingApprovalsTab() {
             >
               {actionLoading[approval.id] && <Loader className="w-4 h-4 animate-spin" />}
               <X className="w-4 h-4" />
-              <span className="hidden sm:inline">거부</span>
+              <span>거부</span>
             </button>
           </div>
         </div>

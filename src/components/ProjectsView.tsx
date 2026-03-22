@@ -396,7 +396,7 @@ export default function ProjectsView({ userId }: ProjectsViewProps) {
           className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
         >
           <Plus className="w-5 h-5" />
-          <span className="hidden sm:inline">새 프로젝트</span>
+          <span>새 프로젝트</span>
         </button>
       </div>
 

@@ -282,12 +282,12 @@ export default function SettingsView() {
             {theme === 'dark' ? (
               <>
                 <Sun className="w-4 h-4" />
-                <span className="hidden sm:inline">라이트 모드</span>
+                <span>라이트 모드</span>
               </>
             ) : (
               <>
                 <Moon className="w-4 h-4" />
-                <span className="hidden sm:inline">다크 모드</span>
+                <span>다크 모드</span>
               </>
             )}
           </button>
@@ -313,7 +313,7 @@ export default function SettingsView() {
           >
             {loading && <Loader className="w-4 h-4 animate-spin" />}
             <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">로그아웃</span>
+            <span>로그아웃</span>
           </button>
         </div>
       </div>

@@ -113,7 +113,7 @@ export default function PersonalView({ userId }: PersonalViewProps) {
           className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
         >
           <Plus className="w-5 h-5" />
-          <span className="hidden sm:inline">새 개인 업무</span>
+          <span>새 개인 업무</span>
         </button>
       </div>
 
