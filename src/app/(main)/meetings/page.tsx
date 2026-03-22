@@ -34,6 +34,8 @@ function useSpeechRecognition() {
   const [micPermission, setMicPermission] = useState<'pending' | 'granted' | 'denied'>('pending')
   const recognitionRef = useRef<any>(null)
   const isListeningRef = useRef(false)
+  const hadErrorRef = useRef(false)
+  const restartCountRef = useRef(0)
   const onResultRef = useRef<((result: SttResult) => void) | null>(null)
   const onErrorRef = useRef<((error: string) => void) | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -105,9 +107,18 @@ function useSpeechRecognition() {
     }
 
     recognition.onerror = (event: any) => {
-      if (event.error === 'no-speech') return // ignore no-speech
+      if (event.error === 'no-speech') return // ignore no-speech, will auto-restart normally
+      if (event.error === 'aborted') return // ignore aborted (user stopped)
+
+      // Mark that an error occurred — prevents auto-restart in onend
+      hadErrorRef.current = true
+
       if (event.error === 'not-allowed') {
         setMicPermission('denied')
+        // Stop listening entirely on permission denial
+        isListeningRef.current = false
+        recognitionRef.current = null
+        setIsListening(false)
       }
       if (onErrorRef.current) {
         onErrorRef.current(`음성 인식 오류: ${event.error}`)
@@ -115,18 +126,34 @@ function useSpeechRecognition() {
     }
 
     recognition.onend = () => {
-      // Auto-restart if still listening (use ref to avoid stale closure)
-      if (recognitionRef.current && isListeningRef.current) {
+      // Only auto-restart if:
+      // 1. Still intended to be listening
+      // 2. No error occurred (normal Chrome timeout, not an error)
+      // 3. Haven't exceeded restart limit (prevents infinite loops)
+      if (recognitionRef.current && isListeningRef.current && !hadErrorRef.current && restartCountRef.current < 50) {
+        restartCountRef.current++
         try {
           recognition.start()
         } catch {
-          // ignore restart errors
+          // Failed to restart — stop gracefully
+          isListeningRef.current = false
+          recognitionRef.current = null
+          setIsListening(false)
         }
+      } else if (hadErrorRef.current) {
+        // Error occurred — stop listening, don't restart
+        isListeningRef.current = false
+        recognitionRef.current = null
+        setIsListening(false)
       }
+      // Reset error flag for next cycle
+      hadErrorRef.current = false
     }
 
     recognitionRef.current = recognition
     isListeningRef.current = true
+    hadErrorRef.current = false
+    restartCountRef.current = 0
     recognition.start()
     setIsListening(true)
   }, [])
@@ -154,7 +181,7 @@ function RecordingModal({
   onSave: () => void
   userId: string
 }) {
-  const { isSupported, micPermission, startListening, stopListening, requestMicPermission, releaseMic } = useSpeechRecognition()
+  const { isListening: sttListening, isSupported, micPermission, startListening, stopListening, requestMicPermission, releaseMic } = useSpeechRecognition()
 
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState('ko')
@@ -179,6 +206,17 @@ function RecordingModal({
       requestMicPermission().finally(() => setRequestingMic(false))
     }
   }, [isSupported, micPermission, requestMicPermission])
+
+  // Sync recording state if STT stops unexpectedly (e.g., due to error)
+  useEffect(() => {
+    if (isRecording && !sttListening) {
+      setIsRecording(false)
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [isRecording, sttListening])
 
   const langOptions = [
     { value: 'ko', label: '한국어' },
