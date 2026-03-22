@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   LogOut,
+  Target,
 } from 'lucide-react'
 import { useAuth } from '@/lib/hooks'
 import ThemeToggle from './ThemeToggle'
@@ -22,6 +23,7 @@ const navItems = [
   { label: '대시보드', icon: LayoutDashboard, href: '/dashboard' },
   { label: '달력', icon: Calendar, href: '/calendar' },
   { label: '업무보드', icon: Columns3, href: '/kanban' },
+  { label: 'KPI', icon: Target, href: '/kpi' },
   { label: '프로젝트', icon: FolderKanban, href: '/projects' },
   { label: '개인', icon: Lock, href: '/personal' },
   { label: '설정', icon: Settings, href: '/settings' },
