@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useAuth } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import type { Meeting, ActionItem } from '@/lib/types'
 import {
@@ -714,24 +713,19 @@ function MeetingCard({ meeting, onClick }: { meeting: Meeting; onClick: () => vo
 // ==================== MAIN PAGE ====================
 
 export default function MeetingsPage() {
-  const { user } = useAuth()
-
+  const [userId, setUserId] = useState<string | null>(null)
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [showRecording, setShowRecording] = useState(false)
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null)
 
-  const fetchMeetings = useCallback(async () => {
-    if (!user?.id) {
-      setLoading(false)
-      return
-    }
+  const fetchMeetings = async (uid: string) => {
     try {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('meetings')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', uid)
         .order('created_at', { ascending: false })
 
       if (error) {
@@ -743,9 +737,20 @@ export default function MeetingsPage() {
     } finally {
       setLoading(false)
     }
-  }, [user?.id])
+  }
 
-  useEffect(() => { fetchMeetings() }, [fetchMeetings])
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const uid = session?.user?.id || null
+      setUserId(uid)
+      if (uid) {
+        fetchMeetings(uid)
+      } else {
+        setLoading(false)
+      }
+    })
+  }, [])
 
   if (loading) {
     return (
@@ -806,11 +811,11 @@ export default function MeetingsPage() {
       )}
 
       {/* Modals */}
-      {showRecording && user && (
+      {showRecording && userId && (
         <RecordingModal
           onClose={() => setShowRecording(false)}
-          onSave={() => { setShowRecording(false); fetchMeetings() }}
-          userId={user.id}
+          onSave={() => { setShowRecording(false); if (userId) fetchMeetings(userId) }}
+          userId={userId}
         />
       )}
 
@@ -818,7 +823,7 @@ export default function MeetingsPage() {
         <MeetingDetailModal
           meeting={selectedMeeting}
           onClose={() => setSelectedMeeting(null)}
-          onUpdate={() => { setSelectedMeeting(null); fetchMeetings() }}
+          onUpdate={() => { setSelectedMeeting(null); if (userId) fetchMeetings(userId) }}
         />
       )}
     </div>
