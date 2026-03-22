@@ -160,9 +160,9 @@ CREATE POLICY "profiles_update_own" ON profiles
   FOR UPDATE USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
--- INSERT: service_role only (handled by trigger on auth.users)
-CREATE POLICY "profiles_insert_service_role" ON profiles
-  FOR INSERT WITH CHECK (false);
+-- INSERT: users can insert their own profile
+CREATE POLICY "profiles_insert_own" ON profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
 
 -- ==================== PROJECTS POLICIES ====================
 
@@ -368,11 +368,10 @@ CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
   -- Create profile entry
-  INSERT INTO profiles (id, name, email, created_at, updated_at)
+  INSERT INTO profiles (id, name, created_at, updated_at)
   VALUES (
     NEW.id,
-    COALESCE(NEW.user_metadata->>'name', NEW.email),
-    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
     now(),
     now()
   )
@@ -383,7 +382,7 @@ BEGIN
   VALUES (
     NEW.id,
     NEW.email,
-    COALESCE(NEW.user_metadata->>'name', NEW.email),
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
     now()
   )
   ON CONFLICT DO NOTHING;
