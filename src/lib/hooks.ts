@@ -11,56 +11,59 @@ export function useAuth() {
   const [loading, setLoading] = useState(true)
   const supabaseRef = useRef(createClient())
   const supabase = supabaseRef.current
+  const initializedRef = useRef(false)
 
   useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+
     let mounted = true
 
-    const getUser = async () => {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser()
-        if (!mounted) return
-
-        if (error) {
-          console.warn('Auth getUser error:', error.message)
-          setUser(null)
-          setProfile(null)
-          setLoading(false)
-          return
-        }
-
-        setUser(user)
-        if (user) {
-          const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-          if (mounted) setProfile(data)
-        }
-      } catch (err) {
-        console.warn('Auth error:', err)
-        if (mounted) {
-          setUser(null)
-          setProfile(null)
-        }
-      } finally {
-        if (mounted) setLoading(false)
-      }
+    const fetchProfile = async (userId: string) => {
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+      if (mounted) setProfile(data)
     }
-    getUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // Use onAuthStateChange for BOTH initial session and updates
+    // This avoids lock contention from calling getUser() separately
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
-        if (mounted) setProfile(data)
-      } else {
+
+      if (event === 'INITIAL_SESSION') {
+        // First event - gives us the current session state
+        setUser(session?.user ?? null)
+        if (session?.user) {
+          await fetchProfile(session.user.id)
+        }
+        setLoading(false)
+      } else if (event === 'SIGNED_IN') {
+        setUser(session?.user ?? null)
+        if (session?.user) {
+          await fetchProfile(session.user.id)
+        }
+        setLoading(false)
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null)
         setProfile(null)
+      } else if (event === 'TOKEN_REFRESHED') {
+        setUser(session?.user ?? null)
       }
     })
+
+    // Safety timeout - if INITIAL_SESSION never fires, stop loading
+    const timeout = setTimeout(() => {
+      if (mounted && loading) {
+        console.warn('Auth timeout - forcing loading=false')
+        setLoading(false)
+      }
+    }, 5000)
 
     return () => {
       mounted = false
       subscription.unsubscribe()
+      clearTimeout(timeout)
     }
-  }, [supabase])
+  }, [supabase, loading])
 
   return { user, profile, loading, supabase }
 }
