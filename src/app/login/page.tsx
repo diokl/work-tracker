@@ -122,6 +122,16 @@ export default function LoginPage() {
               />
             </div>
 
+            {/* Forgot Password Link */}
+            <div className="text-right">
+              <Link
+                href="/forgot-password"
+                className="text-sm text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+              >
+                비밀번호를 잊으셨나요?
+              </Link>
+            </div>
+
             {/* Login Button */}
             <button
               type="submit"

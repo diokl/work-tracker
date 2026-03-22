@@ -364,32 +364,38 @@ CREATE POLICY "settings_delete_own" ON settings
 
 -- Function: handle_new_user
 -- Creates a profile entry and approval request when a new user is created
-CREATE OR REPLACE FUNCTION handle_new_user()
+CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
   -- Create profile entry
-  INSERT INTO profiles (id, name, created_at, updated_at)
+  INSERT INTO public.profiles (id, name, department, is_approved, created_at, updated_at)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+    NEW.raw_user_meta_data->>'department',
+    false,
     now(),
     now()
   )
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    name = COALESCE(EXCLUDED.name, public.profiles.name),
+    department = COALESCE(EXCLUDED.department, public.profiles.department),
+    updated_at = now();
 
   -- Create approval request
-  INSERT INTO approval_requests (user_id, email, name, created_at)
+  INSERT INTO public.approval_requests (user_id, email, name, department, created_at)
   VALUES (
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+    NEW.raw_user_meta_data->>'department',
     now()
   )
   ON CONFLICT DO NOTHING;
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Trigger: on_auth_user_created
 CREATE TRIGGER on_auth_user_created

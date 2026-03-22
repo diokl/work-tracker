@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const publicRoutes = ['/login', '/signup', '/auth/callback'];
+const publicRoutes = ['/login', '/signup', '/auth/callback', '/forgot-password', '/reset-password'];
 const ignoredRoutes = ['/_next', '/favicon.ico', '/robots.txt', '/sitemap.xml'];
 
 export async function middleware(request: NextRequest) {

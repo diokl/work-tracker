@@ -55,10 +55,16 @@ export default function SignupPage() {
     }
 
     try {
-      // Sign up user
+      // Sign up user (trigger handles profile + approval_requests creation)
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email,
-        password
+        password,
+        options: {
+          data: {
+            name: name.trim(),
+            department: department.trim() || null
+          }
+        }
       })
 
       if (signUpError) {
@@ -69,25 +75,6 @@ export default function SignupPage() {
 
       if (!authData.user) {
         setError('회원가입 중 오류가 발생했습니다.')
-        setLoading(false)
-        return
-      }
-
-      // Create profile with is_approved = false
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert([
-          {
-            id: authData.user.id,
-            name,
-            email,
-            department: department || null,
-            is_approved: false
-          }
-        ])
-
-      if (profileError) {
-        setError('프로필 생성 중 오류가 발생했습니다.')
         setLoading(false)
         return
       }
