@@ -22,6 +22,9 @@ import {
 } from 'lucide-react'
 
 // ==================== STT HOOK ====================
+// Uses Web Speech API (SpeechRecognition) only.
+// NO getUserMedia() — SpeechRecognition accesses the mic directly.
+// getUserMedia() would conflict by holding the mic and triggering a separate permission popup.
 
 interface SttResult {
   transcript: string
@@ -31,44 +34,17 @@ interface SttResult {
 function useSpeechRecognition() {
   const [isListening, setIsListening] = useState(false)
   const [isSupported, setIsSupported] = useState(false)
-  const [micPermission, setMicPermission] = useState<'pending' | 'granted' | 'denied'>('pending')
   const recognitionRef = useRef<any>(null)
   const isListeningRef = useRef(false)
   const hadErrorRef = useRef(false)
   const restartCountRef = useRef(0)
   const onResultRef = useRef<((result: SttResult) => void) | null>(null)
   const onErrorRef = useRef<((error: string) => void) | null>(null)
-  const mediaStreamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      setIsSupported(!!SpeechRecognition)
-    }
-  }, [])
-
-  // Request microphone permission once and keep the stream alive
-  const requestMicPermission = useCallback(async () => {
-    if (mediaStreamRef.current) {
-      setMicPermission('granted')
-      return true
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaStreamRef.current = stream
-      setMicPermission('granted')
-      return true
-    } catch {
-      setMicPermission('denied')
-      return false
-    }
-  }, [])
-
-  // Release the microphone stream (call on cleanup only)
-  const releaseMic = useCallback(() => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop())
-      mediaStreamRef.current = null
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      setIsSupported(!!SR)
     }
   }, [])
 
@@ -84,6 +60,7 @@ function useSpeechRecognition() {
     if (recognitionRef.current) {
       isListeningRef.current = false
       try { recognitionRef.current.stop() } catch { /* ignore */ }
+      recognitionRef.current = null
     }
 
     const recognition = new SpeechRecognition()
@@ -107,55 +84,56 @@ function useSpeechRecognition() {
     }
 
     recognition.onerror = (event: any) => {
-      if (event.error === 'no-speech') return // ignore no-speech, will auto-restart normally
-      if (event.error === 'aborted') return // ignore aborted (user stopped)
+      // no-speech: Chrome fires this when silence is detected — harmless, auto-restart OK
+      if (event.error === 'no-speech') return
+      // aborted: user or code called stop() — not an error
+      if (event.error === 'aborted') return
 
-      // Mark that an error occurred — prevents auto-restart in onend
+      // Real error — prevent auto-restart
       hadErrorRef.current = true
 
-      if (event.error === 'not-allowed') {
-        setMicPermission('denied')
-        // Stop listening entirely on permission denial
-        isListeningRef.current = false
-        recognitionRef.current = null
-        setIsListening(false)
-      }
       if (onErrorRef.current) {
-        onErrorRef.current(`음성 인식 오류: ${event.error}`)
+        const messages: Record<string, string> = {
+          'not-allowed': '마이크 권한이 거부되었습니다. 브라우저 주소창 옆 자물쇠 아이콘에서 마이크를 허용해주세요.',
+          'network': '네트워크 오류가 발생했습니다. 인터넷 연결을 확인해주세요.',
+          'audio-capture': '마이크를 찾을 수 없습니다. 마이크가 연결되어 있는지 확인해주세요.',
+          'service-not-allowed': '음성 인식 서비스를 사용할 수 없습니다.',
+        }
+        onErrorRef.current(messages[event.error] || `음성 인식 오류: ${event.error}`)
       }
     }
 
     recognition.onend = () => {
-      // Only auto-restart if:
-      // 1. Still intended to be listening
-      // 2. No error occurred (normal Chrome timeout, not an error)
-      // 3. Haven't exceeded restart limit (prevents infinite loops)
-      if (recognitionRef.current && isListeningRef.current && !hadErrorRef.current && restartCountRef.current < 50) {
+      // Auto-restart ONLY if: still listening + no error + within restart limit
+      if (isListeningRef.current && !hadErrorRef.current && restartCountRef.current < 100) {
         restartCountRef.current++
+        hadErrorRef.current = false
         try {
           recognition.start()
+          return
         } catch {
-          // Failed to restart — stop gracefully
-          isListeningRef.current = false
-          recognitionRef.current = null
-          setIsListening(false)
+          // Fall through to stop
         }
-      } else if (hadErrorRef.current) {
-        // Error occurred — stop listening, don't restart
-        isListeningRef.current = false
-        recognitionRef.current = null
-        setIsListening(false)
       }
-      // Reset error flag for next cycle
+      // Otherwise, stop completely
       hadErrorRef.current = false
+      isListeningRef.current = false
+      recognitionRef.current = null
+      setIsListening(false)
     }
 
     recognitionRef.current = recognition
     isListeningRef.current = true
     hadErrorRef.current = false
     restartCountRef.current = 0
-    recognition.start()
-    setIsListening(true)
+
+    try {
+      recognition.start()
+      setIsListening(true)
+    } catch (e: any) {
+      onError(`음성 인식을 시작할 수 없습니다: ${e.message}`)
+      recognitionRef.current = null
+    }
   }, [])
 
   const stopListening = useCallback(() => {
@@ -167,7 +145,7 @@ function useSpeechRecognition() {
     setIsListening(false)
   }, [])
 
-  return { isListening, isSupported, micPermission, startListening, stopListening, requestMicPermission, releaseMic }
+  return { isListening, isSupported, startListening, stopListening }
 }
 
 // ==================== RECORDING MODAL ====================
@@ -181,7 +159,7 @@ function RecordingModal({
   onSave: () => void
   userId: string
 }) {
-  const { isListening: sttListening, isSupported, micPermission, startListening, stopListening, requestMicPermission, releaseMic } = useSpeechRecognition()
+  const { isListening: sttActive, isSupported, startListening, stopListening } = useSpeechRecognition()
 
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState('ko')
@@ -193,30 +171,21 @@ function RecordingModal({
   const [isRecording, setIsRecording] = useState(false)
   const [saving, setSaving] = useState(false)
   const [summarizing, setSummarizing] = useState(false)
-  const [requestingMic, setRequestingMic] = useState(false)
 
   const startTimeRef = useRef<Date | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const transcriptRef = useRef('')
 
-  // Request microphone permission once when modal opens
-  useEffect(() => {
-    if (isSupported && micPermission === 'pending') {
-      setRequestingMic(true)
-      requestMicPermission().finally(() => setRequestingMic(false))
-    }
-  }, [isSupported, micPermission, requestMicPermission])
-
   // Sync recording state if STT stops unexpectedly (e.g., due to error)
   useEffect(() => {
-    if (isRecording && !sttListening) {
+    if (isRecording && !sttActive) {
       setIsRecording(false)
       if (timerRef.current) {
         clearInterval(timerRef.current)
         timerRef.current = null
       }
     }
-  }, [isRecording, sttListening])
+  }, [isRecording, sttActive])
 
   const langOptions = [
     { value: 'ko', label: '한국어' },
@@ -353,9 +322,8 @@ function RecordingModal({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
       stopListening()
-      releaseMic()
     }
-  }, [stopListening, releaseMic])
+  }, [stopListening])
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60)
@@ -425,22 +393,9 @@ function RecordingModal({
                 </div>
               )}
 
-              {micPermission === 'denied' && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-600 dark:text-red-400">
-                  마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크 접근을 허용해주세요.
-                </div>
-              )}
-
-              {requestingMic && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-600 dark:text-blue-400 flex items-center gap-2">
-                  <Loader size={14} className="animate-spin" />
-                  마이크 권한을 요청 중입니다...
-                </div>
-              )}
-
               <button
                 onClick={handleStartRecording}
-                disabled={!isSupported || micPermission !== 'granted' || requestingMic}
+                disabled={!isSupported}
                 className="w-full flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white font-semibold py-3 rounded-lg transition-all"
               >
                 <Mic size={20} />
