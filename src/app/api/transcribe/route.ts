@@ -7,8 +7,8 @@ async function verifyAuth(req: NextRequest) {
   if (!authHeader?.startsWith('Bearer ')) return null
 
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env['NEXT_PUBLIC_SUPABASE_URL']!,
+    process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY']!
   )
   const { data: { user } } = await supabase.auth.getUser(authHeader.split(' ')[1])
   return user
@@ -23,13 +23,13 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData()
     const audioFile = formData.get('audio') as File | null
-    const language = (formData.get('language') as string) || 'ko'
+    const _language = (formData.get('language') as string) || 'ko' // reserved for future use
 
     if (!audioFile) {
       return NextResponse.json({ error: 'No audio file provided' }, { status: 400 })
     }
 
-    const HF_API_KEY = process.env.HUGGINGFACE_API_KEY
+    const HF_API_KEY = process.env['HUGGINGFACE_API_KEY']
     if (!HF_API_KEY) {
       return NextResponse.json({ error: 'Hugging Face API key not configured' }, { status: 500 })
     }
