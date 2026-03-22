@@ -582,7 +582,10 @@ export default function KpiPage() {
   const [, setProfiles] = useState<Profile[]>([])
 
   const fetchKpis = useCallback(async () => {
-    if (!user?.id) return
+    if (!user?.id) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       // Fetch my KPIs

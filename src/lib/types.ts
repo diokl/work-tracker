@@ -125,6 +125,35 @@ export interface SharedTask {
   created_at: string
 }
 
+export type MeetingStatus = 'recording' | 'transcribing' | 'summarizing' | 'completed' | 'error'
+
+export interface ActionItem {
+  assignee: string
+  task: string
+  deadline?: string
+}
+
+export interface Meeting {
+  id: string
+  user_id: string
+  title: string
+  date: string
+  start_time: string | null
+  end_time: string | null
+  duration_seconds: number | null
+  language: string
+  participants: string[]
+  raw_transcript: string | null
+  summary: string | null
+  key_points: string[] | null
+  action_items: ActionItem[] | null
+  translation: Record<string, string> | null
+  audio_url: string | null
+  status: MeetingStatus
+  created_at: string
+  updated_at: string
+}
+
 export interface DaySummary {
   date: string
   total: number

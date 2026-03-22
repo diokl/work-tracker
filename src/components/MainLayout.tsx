@@ -14,6 +14,7 @@ import {
   X,
   LogOut,
   Target,
+  Mic,
 } from 'lucide-react'
 import { useAuth } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
@@ -24,6 +25,7 @@ const navItems = [
   { label: '달력', icon: Calendar, href: '/calendar' },
   { label: '업무보드', icon: Columns3, href: '/kanban' },
   { label: 'KPI', icon: Target, href: '/kpi' },
+  { label: '회의록', icon: Mic, href: '/meetings' },
   { label: '프로젝트', icon: FolderKanban, href: '/projects' },
   { label: '개인', icon: Lock, href: '/personal' },
   { label: '설정', icon: Settings, href: '/settings' },
