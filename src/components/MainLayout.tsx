@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard,
   Calendar,
@@ -32,7 +31,6 @@ const navItems = [
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, profile, loading } = useAuth()
-  const router = useRouter()
 
   if (loading) {
     return (
