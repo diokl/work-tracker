@@ -1,46 +1,52 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile, Task, Project, DaySummary } from '@/lib/types'
 import type { User } from '@supabase/supabase-js'
+
+// Module-level singleton - created once, reused everywhere
+const supabase = createClient()
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabaseRef = useRef(createClient())
-  const supabase = supabaseRef.current
-  const initializedRef = useRef(false)
 
   useEffect(() => {
-    if (initializedRef.current) return
-    initializedRef.current = true
-
     let mounted = true
 
     const fetchProfile = async (userId: string) => {
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
-      if (mounted) setProfile(data)
+      try {
+        const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+        if (mounted) setProfile(data)
+      } catch (e) {
+        console.warn('Failed to fetch profile:', e)
+      }
     }
 
-    // Use onAuthStateChange for BOTH initial session and updates
-    // This avoids lock contention from calling getUser() separately
+    // 1. Get current session immediately
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return
+      const currentUser = session?.user ?? null
+      setUser(currentUser)
+      if (currentUser) {
+        fetchProfile(currentUser.id).finally(() => {
+          if (mounted) setLoading(false)
+        })
+      } else {
+        setLoading(false)
+      }
+    }).catch(() => {
+      if (mounted) setLoading(false)
+    })
+
+    // 2. Listen for auth changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
-
-      if (event === 'INITIAL_SESSION') {
-        // First event - gives us the current session state
+      if (event === 'SIGNED_IN') {
         setUser(session?.user ?? null)
-        if (session?.user) {
-          await fetchProfile(session.user.id)
-        }
-        setLoading(false)
-      } else if (event === 'SIGNED_IN') {
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          await fetchProfile(session.user.id)
-        }
+        if (session?.user) await fetchProfile(session.user.id)
         setLoading(false)
       } else if (event === 'SIGNED_OUT') {
         setUser(null)
@@ -50,9 +56,10 @@ export function useAuth() {
       }
     })
 
-    // Safety timeout - if INITIAL_SESSION never fires, stop loading
+    // 3. Safety timeout
     const timeout = setTimeout(() => {
-      if (mounted) {
+      if (mounted && loading) {
+        console.warn('useAuth: safety timeout fired')
         setLoading(false)
       }
     }, 5000)
@@ -75,7 +82,6 @@ export function useTasks(userId: string | undefined, date?: string) {
   const fetchTasks = useCallback(async () => {
     if (!userId) return
     setLoading(true)
-    const supabase = createClient()
     let query = supabase.from('tasks').select('*, project:projects(id, name)').eq('user_id', userId)
     if (date) query = query.eq('date', date)
     query = query.order('created_at', { ascending: false })
@@ -93,7 +99,6 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
 
   useEffect(() => {
     if (!userId) return
-    const supabase = createClient()
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`
     const endDate = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
 
@@ -129,7 +134,6 @@ export function useProjects(userId: string | undefined) {
   const fetchProjects = useCallback(async () => {
     if (!userId) return
     setLoading(true)
-    const supabase = createClient()
     const { data } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false })
     setProjects(data || [])
     setLoading(false)

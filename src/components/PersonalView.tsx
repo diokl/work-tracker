@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import { Task, STATUS_LABELS, STATUS_COLORS } from '@/lib/types'
+
+const supabase = createClient()
 import { Lock, Plus, Edit2, Trash2 } from 'lucide-react'
 import TaskFormModal from '@/components/TaskFormModal'
 
@@ -15,7 +17,6 @@ interface PersonalViewProps {
 
 export default function PersonalView({ userId }: PersonalViewProps) {
   const { user, loading: authLoading } = useAuth()
-  const supabase = createClient()
   const [tasks, setTasks] = useState<PersonalTask[]>([])
   const [loading, setLoading] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)

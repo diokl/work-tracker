@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import type { KpiDefinition, Profile } from '@/lib/types'
+
+const supabase = createClient()
 import {
   Target,
   Plus,
@@ -125,7 +127,6 @@ function KpiFormModal({
   onClose: () => void
   onSave: () => void
 }) {
-  const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
@@ -322,7 +323,6 @@ function KpiTextUploadModal({
   onClose: () => void
   onSave: () => void
 }) {
-  const supabase = createClient()
   const [text, setText] = useState('')
   const [parsed, setParsed] = useState<Partial<KpiDefinition>[]>([])
   const [loading, setLoading] = useState(false)
@@ -586,7 +586,6 @@ export default function KpiPage() {
       return
     }
     setLoading(true)
-    const supabase = createClient()
     try {
       // Fetch my KPIs
       const { data: myKpis } = await supabase
@@ -637,7 +636,6 @@ export default function KpiPage() {
 
   const handleDelete = async (kpiId: string) => {
     if (!confirm('이 KPI를 삭제하시겠습니까?')) return
-    const supabase = createClient()
     await supabase.from('kpi_definitions').delete().eq('id', kpiId)
     fetchKpis()
   }

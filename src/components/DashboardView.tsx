@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useTasks, useProjects } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import { Profile, STATUS_LABELS, STATUS_COLORS } from '@/lib/types'
+
+const supabase = createClient()
 import { CheckCircle2, Circle, Clock, AlertCircle, Plus, Calendar } from 'lucide-react'
 import TaskFormModal from './TaskFormModal'
 
@@ -22,7 +24,6 @@ export default function DashboardView({ profile, userId }: DashboardViewProps) {
   // Fetch approved profiles for sharing
   useEffect(() => {
     const fetchProfiles = async () => {
-      const supabase = createClient()
       const { data } = await supabase
         .from('profiles')
         .select('*')

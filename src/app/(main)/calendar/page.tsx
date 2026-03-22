@@ -9,6 +9,8 @@ import { Task, Profile } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { useEffect } from 'react'
 
+const supabase = createClient()
+
 export default function CalendarPage() {
   const { user, profile, loading: authLoading } = useAuth()
   const [year, setYear] = useState(new Date().getFullYear())
@@ -27,7 +29,6 @@ export default function CalendarPage() {
   useEffect(() => {
     const fetchProfiles = async () => {
       setProfilesLoading(true)
-      const supabase = createClient()
       const { data } = await supabase
         .from('profiles')
         .select('*')

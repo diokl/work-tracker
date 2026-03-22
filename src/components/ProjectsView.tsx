@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useAuth, useProjects } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import { Project, ProjectStatus } from '@/lib/types'
+
+const supabase = createClient()
 import { FolderKanban, Plus, ChevronLeft, Archive, Trash2, X, Loader } from 'lucide-react'
 
 const STATUS_BADGE: Record<ProjectStatus, { bg: string; text: string; label: string }> = {
@@ -19,7 +21,6 @@ interface ProjectDetailProps {
 }
 
 function ProjectDetail({ project, taskCount, onBack, onRefresh }: ProjectDetailProps) {
-  const supabase = createClient()
   const [showEditModal, setShowEditModal] = useState(false)
   const [linkedTasks, setLinkedTasks] = useState<any[]>([])
   const [completedCount, setCompletedCount] = useState(0)
@@ -182,7 +183,6 @@ interface ProjectFormModalProps {
 }
 
 function ProjectFormModal({ project, onClose, onSave }: ProjectFormModalProps) {
-  const supabase = createClient()
   const { user } = useAuth()
   const [formData, setFormData] = useState({
     name: '',
@@ -340,7 +340,6 @@ export default function ProjectsView({ userId }: ProjectsViewProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [taskCounts, setTaskCounts] = useState<Record<string, number>>({})
-  const supabase = createClient()
 
   useEffect(() => {
     if (!userId) return

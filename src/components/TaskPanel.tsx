@@ -5,6 +5,8 @@ import { X, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useState } from 'react'
 
+const supabase = createClient()
+
 interface TaskPanelProps {
   selectedDate: string | null
   tasks: Task[]
@@ -24,7 +26,6 @@ export default function TaskPanel({
   onEditTask,
   onTasksRefresh,
 }: TaskPanelProps) {
-  const supabase = createClient()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   if (!selectedDate) {

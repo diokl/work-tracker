@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ApprovalRequest, Profile } from '@/lib/types'
+
+const supabase = createClient()
 import { Shield, Check, X, Loader } from 'lucide-react'
 
 type TabType = 'pending' | 'users' | 'stats'
@@ -74,7 +76,7 @@ export default function AdminView() {
 }
 
 function PendingApprovalsTab() {
-  const supabase = createClient()
+
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
   const [loading, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
@@ -208,7 +210,7 @@ function PendingApprovalsTab() {
 }
 
 function UsersTab() {
-  const supabase = createClient()
+
   const [users, setUsers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
@@ -330,7 +332,7 @@ function UsersTab() {
 }
 
 function SystemStatsTab() {
-  const supabase = createClient()
+
   const [stats, setStats] = useState<ApprovalStats>({
     totalUsers: 0,
     totalTasks: 0,

@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Meeting, ActionItem } from '@/lib/types'
+
+const supabase = createClient()
 import {
   Mic,
   Square,
@@ -116,7 +118,6 @@ function RecordingModal({
   onSave: () => void
   userId: string
 }) {
-  const supabase = createClient()
   const { isSupported, startListening, stopListening } = useSpeechRecognition()
 
   const [title, setTitle] = useState('')
@@ -455,7 +456,6 @@ function MeetingDetailModal({
   onClose: () => void
   onUpdate: () => void
 }) {
-  const supabase = createClient()
   const [activeTab, setActiveTab] = useState<'transcript' | 'summary' | 'actions'>('summary')
   const [summarizing, setSummarizing] = useState(false)
   const [error, setError] = useState('')
@@ -464,8 +464,7 @@ function MeetingDetailModal({
     setSummarizing(true)
     setError('')
     try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
+          const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/api/meetings/summarize', {
         method: 'POST',
         headers: {
@@ -721,8 +720,7 @@ export default function MeetingsPage() {
 
   const fetchMeetings = async (uid: string) => {
     try {
-      const supabase = createClient()
-      const { data, error } = await supabase
+          const { data, error } = await supabase
         .from('meetings')
         .select('*')
         .eq('user_id', uid)
@@ -740,8 +738,7 @@ export default function MeetingsPage() {
   }
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getSession().then(({ data: { session } }) => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
       const uid = session?.user?.id || null
       setUserId(uid)
       if (uid) {

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Task, TaskStatus, STATUS_LABELS, Project, Profile, Notification } from '@/lib/types'
+
+const supabase = createClient()
 import { X, Loader } from 'lucide-react'
 
 interface TaskFormModalProps {
@@ -28,7 +30,6 @@ export default function TaskFormModal({
   userId,
   isPrivateDefault = false,
 }: TaskFormModalProps) {
-  const supabase = createClient()
   const [formData, setFormData] = useState({
     title: '',
     date: selectedDate,
