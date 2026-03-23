@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/lib/types'
 import type { User, SupabaseClient } from '@supabase/supabase-js'
@@ -12,6 +12,7 @@ interface AuthContextValue {
   supabase: SupabaseClient
 }
 
+// Module-level singleton — the ONLY browser Supabase client in the app
 const supabase = createClient()
 
 const AuthContext = createContext<AuthContextValue>({
@@ -25,14 +26,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const mountedRef = useRef(true)
+  // Track whether initial session has been resolved to avoid double-processing
+  const initializedRef = useRef(false)
 
   useEffect(() => {
-    let mounted = true
+    mountedRef.current = true
+    initializedRef.current = false
 
     const fetchProfile = async (userId: string) => {
       try {
         const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
-        if (mounted) setProfile(data)
+        if (mountedRef.current) setProfile(data)
       } catch (e) {
         console.warn('Failed to fetch profile:', e)
       }
@@ -40,44 +45,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // 1. Get current session immediately
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return
+      if (!mountedRef.current) return
+      initializedRef.current = true
       const currentUser = session?.user ?? null
       setUser(currentUser)
       if (currentUser) {
         fetchProfile(currentUser.id).finally(() => {
-          if (mounted) setLoading(false)
+          if (mountedRef.current) setLoading(false)
         })
       } else {
         setLoading(false)
       }
     }).catch(() => {
-      if (mounted) setLoading(false)
+      if (mountedRef.current) {
+        initializedRef.current = true
+        setLoading(false)
+      }
     })
 
     // 2. Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return
+      if (!mountedRef.current) return
+
+      // Skip INITIAL_SESSION if we already handled it via getSession
+      if (event === 'INITIAL_SESSION') {
+        if (!initializedRef.current) {
+          initializedRef.current = true
+          const currentUser = session?.user ?? null
+          setUser(currentUser)
+          if (currentUser) {
+            await fetchProfile(currentUser.id)
+          }
+          if (mountedRef.current) setLoading(false)
+        }
+        return
+      }
+
       if (event === 'SIGNED_IN') {
-        setUser(session?.user ?? null)
-        if (session?.user) await fetchProfile(session.user.id)
-        setLoading(false)
+        const newUser = session?.user ?? null
+        setUser(newUser)
+        if (newUser) await fetchProfile(newUser.id)
+        if (mountedRef.current) setLoading(false)
       } else if (event === 'SIGNED_OUT') {
         setUser(null)
         setProfile(null)
+        if (mountedRef.current) setLoading(false)
       } else if (event === 'TOKEN_REFRESHED') {
         setUser(session?.user ?? null)
       }
     })
 
-    // 3. Safety timeout
+    // 3. Safety timeout — never stay loading forever
     const timeout = setTimeout(() => {
-      if (mounted) {
+      if (mountedRef.current) {
         setLoading(false)
       }
     }, 5000)
 
     return () => {
-      mounted = false
+      mountedRef.current = false
       subscription.unsubscribe()
       clearTimeout(timeout)
     }

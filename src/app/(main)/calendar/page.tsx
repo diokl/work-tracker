@@ -1,25 +1,21 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useAuth, useTasks, useMonthSummary, useProjects } from '@/lib/hooks'
 import CalendarView from '@/components/CalendarView'
 import TaskPanel from '@/components/TaskPanel'
 import TaskFormModal from '@/components/TaskFormModal'
 import { Task, Profile } from '@/lib/types'
-import { createClient } from '@/lib/supabase/client'
-import { useEffect } from 'react'
-
-const supabase = createClient()
 
 export default function CalendarPage() {
-  const { user, profile, loading: authLoading } = useAuth()
+  const { user, profile, loading: authLoading, supabase } = useAuth()
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [profilesLoading, setProfilesLoading] = useState(true)
+  const [profilesLoading, setProfilesLoading] = useState(false)
 
   const summaries = useMonthSummary(user?.id, year, month)
   const { tasks, refetch: refetchTasks } = useTasks(user?.id, selectedDate || undefined)
@@ -27,23 +23,30 @@ export default function CalendarPage() {
 
   // Fetch other profiles for sharing
   useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+
     const fetchProfiles = async () => {
       setProfilesLoading(true)
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user?.id)
-        .eq('is_approved', true)
-        .order('name')
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .neq('id', user.id)
+          .eq('is_approved', true)
+          .order('name')
 
-      setProfiles(data || [])
-      setProfilesLoading(false)
+        if (!cancelled) setProfiles(data || [])
+      } catch (e) {
+        console.error('fetchProfiles error:', e)
+      } finally {
+        if (!cancelled) setProfilesLoading(false)
+      }
     }
 
-    if (user?.id) {
-      fetchProfiles()
-    }
-  }, [user?.id])
+    fetchProfiles()
+    return () => { cancelled = true }
+  }, [user?.id, supabase])
 
   const handleMonthChange = useCallback((newYear: number, newMonth: number) => {
     setYear(newYear)
@@ -78,7 +81,7 @@ export default function CalendarPage() {
     setSelectedDate(null)
   }
 
-  if (authLoading || profilesLoading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-4">

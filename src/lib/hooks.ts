@@ -7,7 +7,7 @@ import type { Task, Project, DaySummary } from '@/lib/types'
 // Re-export useAuth from context so all existing imports keep working
 export { useAuth } from '@/lib/auth-context'
 
-// Module-level singleton
+// Use the module-level singleton (same instance as AuthProvider)
 const supabase = createClient()
 
 export function useTasks(userId: string | undefined, date?: string) {
@@ -39,6 +39,8 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
 
   useEffect(() => {
     if (!userId) return
+    let cancelled = false
+
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`
     const endDate = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
 
@@ -49,7 +51,7 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
       .gte('date', startDate)
       .lt('date', endDate)
       .then(({ data }) => {
-        if (!data) return
+        if (cancelled || !data) return
         const map = new Map<string, DaySummary>()
         data.forEach(task => {
           const existing = map.get(task.date) || { date: task.date, total: 0, completed: 0, in_progress: 0, waiting_next: 0, pending: 0 }
@@ -62,6 +64,11 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
         })
         setSummaries(Array.from(map.values()))
       })
+      .catch((e) => {
+        console.error('useMonthSummary error:', e)
+      })
+
+    return () => { cancelled = true }
   }, [userId, year, month])
 
   return summaries

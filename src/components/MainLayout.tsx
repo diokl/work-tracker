@@ -16,8 +16,7 @@ import {
   Target,
   Mic,
 } from 'lucide-react'
-import { useAuth } from '@/lib/hooks'
-import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/lib/auth-context'
 import ThemeToggle from './ThemeToggle'
 
 const navItems = [
@@ -33,21 +32,19 @@ const navItems = [
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { user, profile, loading } = useAuth()
+  const { user, profile, loading, supabase } = useAuth()
 
   useEffect(() => {
     if (!loading && !user) {
       const clearAndRedirect = async () => {
-        const supabase = createClient()
         await supabase.auth.signOut()
         window.location.href = '/login'
       }
       clearAndRedirect()
     }
-  }, [loading, user])
+  }, [loading, user, supabase])
 
   const handleLogout = async () => {
-    const supabase = createClient()
     await supabase.auth.signOut()
     window.location.href = '/login'
   }

@@ -9,9 +9,6 @@ import {
 } from '@hello-pangea/dnd'
 import { Plus, ChevronDown, Calendar } from 'lucide-react'
 import { useAuth } from '@/lib/hooks'
-import { createClient } from '@/lib/supabase/client'
-
-const supabase = createClient()
 import TaskFormModal from '@/components/TaskFormModal'
 import type { Task, TaskStatus, Profile } from '@/lib/types'
 
@@ -219,10 +216,10 @@ function KanbanColumn({
 }
 
 export default function KanbanPage() {
-  const { user } = useAuth()
+  const { user, supabase } = useAuth()
 
   const [tasks, setTasks] = useState<Task[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [dateRange, setDateRange] = useState<'month' | 'week' | 'all'>('month')
   const [selectedProject, setSelectedProject] = useState<string>('all')
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])

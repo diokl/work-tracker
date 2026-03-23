@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import type { KpiDefinition, Profile } from '@/lib/types'
 
+// Singleton for sub-components that can't use hooks
 const supabase = createClient()
 import {
   Target,
@@ -568,7 +569,7 @@ function KpiCard({
 // ==================== MAIN KPI PAGE ====================
 
 export default function KpiPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, supabase } = useAuth()
 
   const [kpis, setKpis] = useState<KpiDefinition[]>([])
   const [teamKpis, setTeamKpis] = useState<Record<string, { profile: Profile; kpis: KpiDefinition[] }>>({})

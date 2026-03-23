@@ -1,10 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useAuth } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import type { Meeting, ActionItem } from '@/lib/types'
 
 const supabase = createClient()
+// Note: module-level supabase kept for sub-components that can't use hooks.
+// Main component uses useAuth() for user state.
 import {
   Mic,
   Square,
@@ -782,15 +785,17 @@ function MeetingCard({ meeting, onClick }: { meeting: Meeting; onClick: () => vo
 // ==================== MAIN PAGE ====================
 
 export default function MeetingsPage() {
-  const [userId, setUserId] = useState<string | null>(null)
+  const { user } = useAuth()
+  const userId = user?.id || null
   const [meetings, setMeetings] = useState<Meeting[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [showRecording, setShowRecording] = useState(false)
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null)
 
   const fetchMeetings = async (uid: string) => {
+    setLoading(true)
     try {
-          const { data, error } = await supabase
+      const { data, error } = await supabase
         .from('meetings')
         .select('*')
         .eq('user_id', uid)
@@ -808,16 +813,10 @@ export default function MeetingsPage() {
   }
 
   useEffect(() => {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-      const uid = session?.user?.id || null
-      setUserId(uid)
-      if (uid) {
-        fetchMeetings(uid)
-      } else {
-        setLoading(false)
-      }
-    })
-  }, [])
+    if (userId) {
+      fetchMeetings(userId)
+    }
+  }, [userId])
 
   if (loading) {
     return (
