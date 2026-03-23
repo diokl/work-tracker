@@ -377,8 +377,8 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* AI API 키 관리 - Admin Only */}
-      {profile?.role === 'admin' && (
+      {/* AI API 키 관리는 관리자 대시보드로 이동됨 */}
+      {false && profile?.role === 'admin' && (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
             <Key className="w-5 h-5" />
