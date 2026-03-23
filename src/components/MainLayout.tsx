@@ -15,7 +15,6 @@ import {
   LogOut,
   Target,
   Mic,
-  Users,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import ThemeToggle from './ThemeToggle'

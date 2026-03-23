@@ -1,14 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
+    const anthropicKey = process.env['ANTHROPIC_API_KEY']
+
     const keys = [
       {
         name: 'ANTHROPIC_API_KEY',
         label: 'Anthropic (Claude)',
-        has_key: !!process.env.ANTHROPIC_API_KEY,
-        masked: process.env.ANTHROPIC_API_KEY
-          ? process.env.ANTHROPIC_API_KEY.slice(0, 7) + '...' + process.env.ANTHROPIC_API_KEY.slice(-4)
+        has_key: !!anthropicKey,
+        masked: anthropicKey
+          ? anthropicKey.slice(0, 7) + '...' + anthropicKey.slice(-4)
           : null,
         source: 'env' as const,
       },
