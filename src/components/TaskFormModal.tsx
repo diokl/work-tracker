@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Task, TaskStatus, STATUS_LABELS, Project, Profile } from '@/lib/types'
 
 const supabase = createClient()
-import { X, Loader, Sparkles } from 'lucide-react'
+import { X, Loader, Sparkles, Plus } from 'lucide-react'
 
 interface TaskFormModalProps {
   task?: Task | null
@@ -49,6 +49,13 @@ export default function TaskFormModal({
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [selectedProfiles, setSelectedProfiles] = useState<Set<string>>(new Set())
+  const [suggestedNewProject, setSuggestedNewProject] = useState<string | null>(null)
+  const [creatingProject, setCreatingProject] = useState(false)
+  const [localProjects, setLocalProjects] = useState<Project[]>(projects)
+
+  useEffect(() => {
+    setLocalProjects(projects)
+  }, [projects])
 
   useEffect(() => {
     if (task) {
@@ -143,15 +150,67 @@ export default function TaskFormModal({
           : prev.tags,
       }))
 
-      setSuccessMessage('AI 정리 완료')
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(''), 3000)
+      // Handle project suggestion
+      if (result.suggested_project_id) {
+        // AI matched an existing project — already set above
+        setSuggestedNewProject(null)
+        const matchedProject = localProjects.find(p => p.id === result.suggested_project_id)
+        setSuccessMessage(`AI 정리 완료` + (matchedProject ? ` · 프로젝트 "${matchedProject.name}" 자동 선택됨` : ''))
+      } else if (result.suggested_project_name) {
+        // AI suggests creating a new project
+        setSuggestedNewProject(result.suggested_project_name)
+        setSuccessMessage('AI 정리 완료 · 새 프로젝트가 제안되었습니다')
+      } else {
+        setSuggestedNewProject(null)
+        setSuccessMessage('AI 정리 완료')
+      }
+
+      // Clear success message after 5 seconds
+      setTimeout(() => setSuccessMessage(''), 5000)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'AI 정리 중 오류가 발생했습니다.'
       console.error('AI enhance error:', err)
       setError(errorMessage)
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  const handleCreateSuggestedProject = async () => {
+    if (!suggestedNewProject) return
+    setCreatingProject(true)
+    setError('')
+
+    try {
+      const { data, error: insertError } = await supabase
+        .from('projects')
+        .insert({
+          user_id: userId,
+          name: suggestedNewProject,
+          status: 'active',
+        })
+        .select('id, name')
+        .single()
+
+      if (insertError) {
+        console.error('Project creation error:', insertError)
+        setError('프로젝트 생성 중 오류: ' + insertError.message)
+        return
+      }
+
+      if (data) {
+        // Add to local projects list and select it
+        setLocalProjects(prev => [...prev, { ...data, user_id: userId, description: null, kpi_id: null, workflow: null, status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as Project])
+        setFormData(prev => ({ ...prev, project_id: data.id }))
+        setSuggestedNewProject(null)
+        setSuccessMessage(`프로젝트 "${data.name}" 생성 완료`)
+        setTimeout(() => setSuccessMessage(''), 3000)
+      }
+    } catch (err) {
+      console.error('Project creation exception:', err)
+      setError('프로젝트 생성 중 오류가 발생했습니다.')
+    } finally {
+      setCreatingProject(false)
     }
   }
 
@@ -416,12 +475,29 @@ export default function TaskFormModal({
               className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
             >
               <option value="">프로젝트 선택...</option>
-              {projects.map(project => (
+              {localProjects.map(project => (
                 <option key={project.id} value={project.id}>
                   {project.name}
                 </option>
               ))}
             </select>
+
+            {/* AI Suggested New Project */}
+            {suggestedNewProject && (
+              <button
+                type="button"
+                onClick={handleCreateSuggestedProject}
+                disabled={creatingProject}
+                className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-indigo-400 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 font-medium rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors disabled:opacity-50"
+              >
+                {creatingProject ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Plus className="w-4 h-4" />
+                )}
+                새 프로젝트 &quot;{suggestedNewProject}&quot; 생성하기
+              </button>
+            )}
           </div>
 
           {/* Next Action Field */}
