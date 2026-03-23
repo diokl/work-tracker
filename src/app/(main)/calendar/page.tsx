@@ -15,7 +15,7 @@ export default function CalendarPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [profilesLoading, setProfilesLoading] = useState(false)
+  const [, setProfilesLoading] = useState(false)
 
   const summaries = useMonthSummary(user?.id, year, month)
   const { tasks, refetch: refetchTasks } = useTasks(user?.id, selectedDate || undefined)

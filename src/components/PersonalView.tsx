@@ -214,7 +214,10 @@ export default function PersonalView({ userId }: PersonalViewProps) {
                       {/* Actions */}
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setSelectedTask(task)}
+                          onClick={() => {
+                            setSelectedTask(task)
+                            setShowCreateModal(true)
+                          }}
                           className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                           title="편집"
                         >
@@ -242,26 +245,13 @@ export default function PersonalView({ userId }: PersonalViewProps) {
       {showCreateModal && (
         <TaskFormModal
           task={selectedTask}
-          selectedDate={new Date().toISOString().split('T')[0] || ''}
+          selectedDate={selectedTask?.date || new Date().toISOString().split('T')[0] || ''}
           projects={allProjects}
           profiles={allProfiles}
           onClose={() => {
             setShowCreateModal(false)
             setSelectedTask(null)
           }}
-          onSave={handleTaskSave}
-          userId={user?.id || 'unknown'}
-          isPrivateDefault={true}
-        />
-      )}
-
-      {selectedTask && (
-        <TaskFormModal
-          task={selectedTask}
-          selectedDate={selectedTask.date}
-          projects={allProjects}
-          profiles={allProfiles}
-          onClose={() => setSelectedTask(null)}
           onSave={handleTaskSave}
           userId={user?.id || 'unknown'}
           isPrivateDefault={true}

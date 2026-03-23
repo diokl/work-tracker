@@ -42,25 +42,31 @@ function ProjectDetail({ project, taskCount, onBack, onRefresh }: ProjectDetailP
   const handleArchive = async () => {
     if (!confirm('이 프로젝트를 아카이브하시겠습니까?')) return
     setLoading(true)
-    const { error } = await supabase
-      .from('projects')
-      .update({ status: 'archived' })
-      .eq('id', project.id)
-    if (!error) {
-      onRefresh()
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ status: 'archived' })
+        .eq('id', project.id)
+      if (!error) {
+        onRefresh()
+      }
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const handleDelete = async () => {
     if (!confirm('이 프로젝트를 삭제하시겠습니까? 연결된 업무는 유지됩니다.')) return
     setLoading(true)
-    const { error } = await supabase.from('projects').delete().eq('id', project.id)
-    if (!error) {
-      onBack()
-      onRefresh()
+    try {
+      const { error } = await supabase.from('projects').delete().eq('id', project.id)
+      if (!error) {
+        onBack()
+        onRefresh()
+      }
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const progressPercent = taskCount > 0 ? (completedCount / taskCount) * 100 : 0
@@ -344,15 +350,19 @@ export default function ProjectsView({ userId }: ProjectsViewProps) {
   useEffect(() => {
     if (!userId) return
     const fetchTaskCounts = async () => {
-      const counts: Record<string, number> = {}
-      for (const project of projects) {
-        const { count } = await supabase
-          .from('tasks')
-          .select('id', { count: 'exact', head: true })
-          .eq('project_id', project.id)
-        counts[project.id] = count || 0
+      try {
+        const counts: Record<string, number> = {}
+        for (const project of projects) {
+          const { count } = await supabase
+            .from('tasks')
+            .select('id', { count: 'exact', head: true })
+            .eq('project_id', project.id)
+          counts[project.id] = count || 0
+        }
+        setTaskCounts(counts)
+      } catch (error) {
+        console.error('ProjectsView fetchTaskCounts error:', error)
       }
-      setTaskCounts(counts)
     }
     fetchTaskCounts()
   }, [projects, userId])

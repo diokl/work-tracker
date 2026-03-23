@@ -24,13 +24,17 @@ export default function DashboardView({ profile, userId }: DashboardViewProps) {
   // Fetch approved profiles for sharing
   useEffect(() => {
     const fetchProfiles = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', userId)
-        .eq('is_approved', true)
-        .order('name')
-      setProfiles(data || [])
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .neq('id', userId)
+          .eq('is_approved', true)
+          .order('name')
+        setProfiles(data || [])
+      } catch (error) {
+        console.error('DashboardView fetchProfiles error:', error)
+      }
     }
     if (userId) fetchProfiles()
   }, [userId])

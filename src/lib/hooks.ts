@@ -44,29 +44,50 @@ export function useMonthSummary(userId: string | undefined, year: number, month:
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`
     const endDate = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
 
-    supabase
-      .from('tasks')
-      .select('date, status')
-      .eq('user_id', userId)
-      .gte('date', startDate)
-      .lt('date', endDate)
-      .then(({ data }) => {
+    const fetchSummaries = async () => {
+      try {
+        const { data } = await supabase
+          .from('tasks')
+          .select('date, start_date, end_date, status')
+          .eq('user_id', userId)
+          .gte('date', startDate)
+          .lt('date', endDate)
+
         if (cancelled || !data) return
         const map = new Map<string, DaySummary>()
-        data.forEach(task => {
-          const existing = map.get(task.date) || { date: task.date, total: 0, completed: 0, in_progress: 0, waiting_next: 0, pending: 0 }
-          existing.total++
-          if (task.status === 'completed') existing.completed++
-          else if (task.status === 'in_progress') existing.in_progress++
-          else if (task.status === 'waiting_next') existing.waiting_next++
-          else existing.pending++
-          map.set(task.date, existing)
+
+        data.forEach((task: any) => {
+          const dates = new Set<string>()
+
+          if (task.start_date && task.end_date) {
+            const current = new Date(task.start_date)
+            const end = new Date(task.end_date)
+            while (current <= end) {
+              const dateStr = current.toISOString().split('T')[0]!
+              dates.add(dateStr)
+              current.setDate(current.getDate() + 1)
+            }
+          } else {
+            dates.add(task.date)
+          }
+
+          dates.forEach(dateStr => {
+            const existing = map.get(dateStr) || { date: dateStr, total: 0, completed: 0, in_progress: 0, waiting_next: 0, pending: 0 }
+            existing.total++
+            if (task.status === 'completed') existing.completed++
+            else if (task.status === 'in_progress') existing.in_progress++
+            else if (task.status === 'waiting_next') existing.waiting_next++
+            else existing.pending++
+            map.set(dateStr, existing)
+          })
         })
         setSummaries(Array.from(map.values()))
-      })
-      .catch((e) => {
+      } catch (e) {
         console.error('useMonthSummary error:', e)
-      })
+      }
+    }
+
+    fetchSummaries()
 
     return () => { cancelled = true }
   }, [userId, year, month])

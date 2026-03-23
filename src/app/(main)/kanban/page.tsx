@@ -232,13 +232,17 @@ export default function KanbanPage() {
     if (!user?.id) return
 
     const fetchProjects = async () => {
-      const { data } = await supabase
-        .from('projects')
-        .select('id, name')
-        .eq('user_id', user.id)
-        .order('name')
+      try {
+        const { data } = await supabase
+          .from('projects')
+          .select('id, name')
+          .eq('user_id', user.id)
+          .order('name')
 
-      setProjects(data || [])
+        setProjects(data || [])
+      } catch (err) {
+        console.error('KanbanPage fetchProjects error:', err)
+      }
     }
 
     fetchProjects()
@@ -249,14 +253,18 @@ export default function KanbanPage() {
     if (!user?.id) return
 
     const fetchProfiles = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user.id)
-        .eq('is_approved', true)
-        .order('name')
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .neq('id', user.id)
+          .eq('is_approved', true)
+          .order('name')
 
-      setProfiles(data || [])
+        setProfiles(data || [])
+      } catch (err) {
+        console.error('KanbanPage fetchProfiles error:', err)
+      }
     }
 
     fetchProfiles()
@@ -269,7 +277,7 @@ export default function KanbanPage() {
     const fetchTasks = async () => {
       setLoading(true)
       try {
-          const range = getDateRange(dateRange)
+        const range = getDateRange(dateRange)
         let query = supabase
           .from('tasks')
           .select('*, project:projects(id, name)')
@@ -287,6 +295,8 @@ export default function KanbanPage() {
 
         const { data } = await query.order('created_at', { ascending: false })
         setTasks(data || [])
+      } catch (err) {
+        console.error('KanbanPage fetchTasks error:', err)
       } finally {
         setLoading(false)
       }

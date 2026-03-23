@@ -38,6 +38,8 @@ export interface Task {
   title: string
   content: string | null
   date: string
+  start_date: string | null
+  end_date: string | null
   status: TaskStatus
   project_id: string | null
   kpi_id: string | null

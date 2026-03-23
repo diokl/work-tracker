@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Task, TaskStatus, STATUS_LABELS, Project, Profile, Notification } from '@/lib/types'
+import { Task, TaskStatus, STATUS_LABELS, Project, Profile } from '@/lib/types'
 
 const supabase = createClient()
-import { X, Loader } from 'lucide-react'
+import { X, Loader, Sparkles } from 'lucide-react'
 
 interface TaskFormModalProps {
   task?: Task | null
@@ -33,6 +33,8 @@ export default function TaskFormModal({
   const [formData, setFormData] = useState({
     title: '',
     date: selectedDate,
+    start_date: selectedDate,
+    end_date: '',
     status: 'pending' as TaskStatus,
     content: '',
     project_id: '',
@@ -43,7 +45,9 @@ export default function TaskFormModal({
   })
 
   const [loading, setLoading] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [selectedProfiles, setSelectedProfiles] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -51,6 +55,8 @@ export default function TaskFormModal({
       setFormData({
         title: task.title,
         date: task.date,
+        start_date: task.start_date || task.date,
+        end_date: task.end_date || '',
         status: task.status,
         content: task.content || '',
         project_id: task.project_id || '',
@@ -85,10 +91,79 @@ export default function TaskFormModal({
     })
   }
 
+  const handleAiEnhance = async () => {
+    setAiLoading(true)
+    setError('')
+    setSuccessMessage('')
+
+    try {
+      // Get auth session from Supabase
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        setError('인증 토큰을 가져올 수 없습니다.')
+        setAiLoading(false)
+        return
+      }
+
+      // Call the AI enhance endpoint
+      const response = await fetch('/api/ai/enhance-task', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          title: formData.title,
+          content: formData.content,
+          projects: projects.map(p => ({ id: p.id, name: p.name })),
+          existingTasks: [],
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        setError(`AI 정리 실패: ${errorData.error || '알 수 없는 오류'}`)
+        setAiLoading(false)
+        return
+      }
+
+      const result = await response.json()
+
+      // Update form with AI suggestions
+      setFormData(prev => ({
+        ...prev,
+        content: result.enhanced_content || prev.content,
+        next_action: result.suggested_next_action || prev.next_action,
+        project_id: result.suggested_project_id || prev.project_id,
+        tags: result.suggested_tags?.length > 0
+          ? result.suggested_tags.join(', ')
+          : prev.tags,
+      }))
+
+      setSuccessMessage('AI 정리 완료')
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'AI 정리 중 오류가 발생했습니다.'
+      console.error('AI enhance error:', err)
+      setError(errorMessage)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
+
+    // Create a timeout promise that rejects after 10 seconds
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('작업 시간 초과 (10초)')), 10000)
+    )
 
     try {
       if (!formData.title.trim()) {
@@ -104,7 +179,9 @@ export default function TaskFormModal({
 
       const taskData = {
         title: formData.title,
-        date: formData.date,
+        date: formData.start_date,
+        start_date: formData.start_date,
+        end_date: formData.end_date || null,
         status: formData.status,
         content: formData.content || null,
         project_id: formData.project_id || null,
@@ -116,33 +193,40 @@ export default function TaskFormModal({
 
       if (task) {
         // Update existing task
-        const { error: updateError } = await supabase
-          .from('tasks')
-          .update(taskData)
-          .eq('id', task.id)
+        const updateResult = await Promise.race([
+          supabase.from('tasks').update(taskData).eq('id', task.id),
+          timeoutPromise,
+        ]) as any
 
-        if (updateError) {
+        if (updateResult?.error) {
+          console.error('Task update error:', updateResult.error)
           setError('업무 수정 중 오류가 발생했습니다.')
           setLoading(false)
           return
         }
       } else {
         // Create new task
-        const { data: newTask, error: insertError } = await supabase
-          .from('tasks')
-          .insert({
-            ...taskData,
-            user_id: userId,
-            source: 'manual',
-          })
-          .select('id')
-          .single()
+        const insertResult = await Promise.race([
+          supabase
+            .from('tasks')
+            .insert({
+              ...taskData,
+              user_id: userId,
+              source: 'manual',
+            })
+            .select('id')
+            .single(),
+          timeoutPromise,
+        ]) as any
 
-        if (insertError) {
+        if (insertResult?.error) {
+          console.error('Task insert error:', insertResult.error)
           setError('업무 생성 중 오류가 발생했습니다.')
           setLoading(false)
           return
         }
+
+        const newTask = insertResult?.data
 
         // Create shared_tasks entries for assigned users
         if (selectedProfiles.size > 0 && newTask) {
@@ -152,27 +236,28 @@ export default function TaskFormModal({
             shared_by: userId,
           }))
 
-          await supabase.from('shared_tasks').insert(sharedTasksData)
+          const sharedResult = await Promise.race([
+            supabase.from('shared_tasks').insert(sharedTasksData),
+            timeoutPromise,
+          ]) as any
 
-          // Create notifications for assigned users
-          const notifications: Notification[] = Array.from(selectedProfiles).map(profileId => ({
-            id: crypto.randomUUID(),
-            user_id: profileId,
-            type: 'task_shared',
-            title: '새 업무가 공유되었습니다',
-            message: `${formData.title}`,
-            data: { task_id: newTask.id },
-            is_read: false,
-            created_at: new Date().toISOString(),
-          }))
+          if (sharedResult?.error) {
+            console.error('Shared tasks insert error:', sharedResult.error)
+            // Don't fail the whole operation if shared_tasks fails
+          }
 
-          await supabase.from('notifications').insert(notifications)
+          // NOTE: Notification creation removed due to RLS policy constraints.
+          // When inserting notifications for OTHER users (not auth.uid()),
+          // the RLS policy fails. This should be handled server-side via
+          // a trigger or API endpoint instead.
         }
       }
 
       onSave()
     } catch (err) {
-      setError('오류가 발생했습니다.')
+      const errorMessage = err instanceof Error ? err.message : '오류가 발생했습니다.'
+      console.error('TaskFormModal submission error:', err)
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -187,6 +272,7 @@ export default function TaskFormModal({
       const { error } = await supabase.from('tasks').delete().eq('id', task.id)
 
       if (error) {
+        console.error('Task delete error:', error)
         setError('업무 삭제 중 오류가 발생했습니다.')
         setLoading(false)
         return
@@ -194,6 +280,7 @@ export default function TaskFormModal({
 
       onSave()
     } catch (err) {
+      console.error('TaskFormModal delete error:', err)
       setError('오류가 발생했습니다.')
       setLoading(false)
     }
@@ -224,6 +311,12 @@ export default function TaskFormModal({
             </div>
           )}
 
+          {successMessage && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+              <p className="text-sm text-green-600 dark:text-green-400">{successMessage}</p>
+            </div>
+          )}
+
           {/* Title Field */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
@@ -239,18 +332,32 @@ export default function TaskFormModal({
             />
           </div>
 
-          {/* Date Field */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              날짜
-            </label>
-            <input
-              type="date"
-              name="date"
-              value={formData.date}
-              onChange={handleInputChange}
-              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-            />
+          {/* Date Fields */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                시작일자 *
+              </label>
+              <input
+                type="date"
+                name="start_date"
+                value={formData.start_date}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                종료 예상일자
+              </label>
+              <input
+                type="date"
+                name="end_date"
+                value={formData.end_date}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              />
+            </div>
           </div>
 
           {/* Status Field */}
@@ -274,9 +381,24 @@ export default function TaskFormModal({
 
           {/* Content Field */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              상세 내용
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                상세 내용
+              </label>
+              <button
+                type="button"
+                onClick={handleAiEnhance}
+                disabled={aiLoading || !formData.title.trim() || formData.content.length < 5}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white disabled:from-gray-400 disabled:to-gray-500 transition-all"
+              >
+                {aiLoading ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                AI 정리
+              </button>
+            </div>
             <textarea
               name="content"
               value={formData.content}

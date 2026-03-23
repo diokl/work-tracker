@@ -87,13 +87,18 @@ function PendingApprovalsTab() {
 
   const fetchPendingApprovals = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('approval_requests')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true })
-    setApprovals(data || [])
-    setLoading(false)
+    try {
+      const { data } = await supabase
+        .from('approval_requests')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+      setApprovals(data || [])
+    } catch (error) {
+      console.error('AdminView fetchPendingApprovals error:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleApprove = async (approval: ApprovalRequest) => {
@@ -221,13 +226,18 @@ function UsersTab() {
 
   const fetchUsers = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('is_approved', true)
-      .order('created_at', { ascending: false })
-    setUsers(data || [])
-    setLoading(false)
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('is_approved', true)
+        .order('created_at', { ascending: false })
+      setUsers(data || [])
+    } catch (error) {
+      console.error('AdminView fetchUsers error:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const toggleRole = async (user: Profile) => {
@@ -339,6 +349,7 @@ function SystemStatsTab() {
     todayActiveTasks: 0,
   })
   const [loading, setLoading] = useState(false)
+  const [_error, setError] = useState('')
 
   useEffect(() => {
     fetchStats()
@@ -346,6 +357,7 @@ function SystemStatsTab() {
 
   const fetchStats = async () => {
     setLoading(true)
+    setError('')
     try {
       // Get total users
       const { count: userCount } = await supabase
@@ -371,6 +383,9 @@ function SystemStatsTab() {
         totalTasks: taskCount || 0,
         todayActiveTasks: todayCount || 0,
       })
+    } catch (err) {
+      console.error('AdminView fetchStats error:', err)
+      setError('시스템 통계를 불러오는데 실패했습니다.')
     } finally {
       setLoading(false)
     }
