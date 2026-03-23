@@ -98,7 +98,7 @@ ${existingTasksList}
 위 정보를 분석하여 JSON 응답을 제공해주세요.`
 
     // Call Claude API
-    const response = await fetch('https://api.anthropic.com/v1/messages/create', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
