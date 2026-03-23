@@ -160,15 +160,17 @@ export default function TaskFormModal({
     setLoading(true)
     setError('')
 
-    // Create a timeout promise that rejects after 10 seconds
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('작업 시간 초과 (10초)')), 10000)
-    )
+    // Safety timeout - force release loading after 10s
+    const safetyTimeout = setTimeout(() => {
+      setLoading(false)
+      setError('작업 시간이 초과되었습니다. 다시 시도해주세요.')
+    }, 10000)
 
     try {
       if (!formData.title.trim()) {
         setError('제목은 필수입니다.')
         setLoading(false)
+        clearTimeout(safetyTimeout)
         return
       }
 
@@ -193,68 +195,61 @@ export default function TaskFormModal({
 
       if (task) {
         // Update existing task
-        const updateResult = await Promise.race([
-          supabase.from('tasks').update(taskData).eq('id', task.id),
-          timeoutPromise,
-        ]) as any
+        const { error: updateError } = await supabase
+          .from('tasks')
+          .update(taskData)
+          .eq('id', task.id)
 
-        if (updateResult?.error) {
-          console.error('Task update error:', updateResult.error)
-          setError('업무 수정 중 오류가 발생했습니다.')
+        if (updateError) {
+          console.error('Task update error:', updateError)
+          setError('업무 수정 중 오류가 발생했습니다: ' + updateError.message)
           setLoading(false)
+          clearTimeout(safetyTimeout)
           return
         }
       } else {
         // Create new task
-        const insertResult = await Promise.race([
-          supabase
-            .from('tasks')
-            .insert({
-              ...taskData,
-              user_id: userId,
-              source: 'manual',
-            })
-            .select('id')
-            .single(),
-          timeoutPromise,
-        ]) as any
+        const { data: newTaskData, error: insertError } = await supabase
+          .from('tasks')
+          .insert({
+            ...taskData,
+            user_id: userId,
+            source: 'manual',
+          })
+          .select('id')
+          .single()
 
-        if (insertResult?.error) {
-          console.error('Task insert error:', insertResult.error)
-          setError('업무 생성 중 오류가 발생했습니다.')
+        if (insertError) {
+          console.error('Task insert error:', insertError)
+          setError('업무 생성 중 오류가 발생했습니다: ' + insertError.message)
           setLoading(false)
+          clearTimeout(safetyTimeout)
           return
         }
 
-        const newTask = insertResult?.data
-
         // Create shared_tasks entries for assigned users
-        if (selectedProfiles.size > 0 && newTask) {
+        if (selectedProfiles.size > 0 && newTaskData) {
           const sharedTasksData = Array.from(selectedProfiles).map(profileId => ({
-            task_id: newTask.id,
+            task_id: newTaskData.id,
             shared_with: profileId,
             shared_by: userId,
           }))
 
-          const sharedResult = await Promise.race([
-            supabase.from('shared_tasks').insert(sharedTasksData),
-            timeoutPromise,
-          ]) as any
+          const { error: sharedError } = await supabase
+            .from('shared_tasks')
+            .insert(sharedTasksData)
 
-          if (sharedResult?.error) {
-            console.error('Shared tasks insert error:', sharedResult.error)
+          if (sharedError) {
+            console.error('Shared tasks insert error:', sharedError)
             // Don't fail the whole operation if shared_tasks fails
           }
-
-          // NOTE: Notification creation removed due to RLS policy constraints.
-          // When inserting notifications for OTHER users (not auth.uid()),
-          // the RLS policy fails. This should be handled server-side via
-          // a trigger or API endpoint instead.
         }
       }
 
+      clearTimeout(safetyTimeout)
       onSave()
     } catch (err) {
+      clearTimeout(safetyTimeout)
       const errorMessage = err instanceof Error ? err.message : '오류가 발생했습니다.'
       console.error('TaskFormModal submission error:', err)
       setError(errorMessage)
