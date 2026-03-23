@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/hooks'
 import { useRouter } from 'next/navigation'
-import { Settings, Save, LogOut, Loader, Moon, Sun } from 'lucide-react'
+import { Settings, Save, LogOut, Loader, Moon, Sun, Key } from 'lucide-react'
 
 const AVATAR_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
@@ -18,6 +18,11 @@ export default function SettingsView() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const [apiKeyMasked, setApiKeyMasked] = useState<string | null>(null)
+  const [apiKeySource, setApiKeySource] = useState<'user' | 'env' | null>(null)
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
+  const [newApiKey, setNewApiKey] = useState('')
+  const [savingApiKey, setSavingApiKey] = useState(false)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -26,6 +31,13 @@ export default function SettingsView() {
     part: '',
     avatar_color: '#FF6B6B',
   })
+
+  const maskApiKey = (key: string): string => {
+    if (key.startsWith('env:')) {
+      return key
+    }
+    return key.slice(0, 7) + '...' + key.slice(-4)
+  }
 
   useEffect(() => {
     if (profile) {
@@ -44,6 +56,38 @@ export default function SettingsView() {
       setTheme(isDark ? 'dark' : 'light')
     }
   }, [profile])
+
+  // Fetch API key if user is admin
+  useEffect(() => {
+    const fetchApiKey = async () => {
+      if (profile?.role === 'admin' && user) {
+        try {
+          const { data, error } = await supabase
+            .from('settings')
+            .select('value')
+            .eq('user_id', user.id)
+            .eq('key', 'ANTHROPIC_API_KEY')
+            .single()
+
+          if (!error && data) {
+            setApiKeyMasked(maskApiKey(data.value))
+            setApiKeySource('user')
+          } else {
+            // Check if there's an environment variable
+            // We can't directly access env vars from client, but we can indicate it
+            setApiKeySource(null)
+            setApiKeyMasked(null)
+          }
+        } catch (err) {
+          console.error('Failed to fetch API key:', err)
+        }
+      }
+    }
+
+    if (!authLoading && profile && user) {
+      fetchApiKey()
+    }
+  }, [authLoading, profile, user, supabase])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
@@ -108,6 +152,45 @@ export default function SettingsView() {
         localStorage.setItem('theme', 'dark')
         setTheme('dark')
       }
+    }
+  }
+
+  const handleSaveApiKey = async () => {
+    if (!user || !newApiKey.trim()) {
+      setError('API 키를 입력하세요.')
+      return
+    }
+
+    setSavingApiKey(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .upsert({
+          user_id: user.id,
+          key: 'ANTHROPIC_API_KEY',
+          value: newApiKey.trim(),
+        })
+
+      if (error) {
+        setError('API 키 저장 중 오류가 발생했습니다.')
+        setSavingApiKey(false)
+        return
+      }
+
+      setApiKeyMasked(maskApiKey(newApiKey))
+      setApiKeySource('user')
+      setNewApiKey('')
+      setShowApiKeyInput(false)
+      setSuccess('API 키가 저장되었습니다.')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError('오류가 발생했습니다.')
+      console.error(err)
+    } finally {
+      setSavingApiKey(false)
     }
   }
 
@@ -293,6 +376,86 @@ export default function SettingsView() {
           </button>
         </div>
       </div>
+
+      {/* AI API 키 관리 - Admin Only */}
+      {profile?.role === 'admin' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+            <Key className="w-5 h-5" />
+            AI API 키 관리
+          </h2>
+
+          <div className="space-y-4">
+            {/* Current Status */}
+            {apiKeyMasked ? (
+              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    ANTHROPIC_API_KEY
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {apiKeySource === 'env' ? '환경 변수에서 로드됨' : '사용자 설정'}
+                  </p>
+                </div>
+                <code className="text-xs font-mono bg-gray-200 dark:bg-gray-800 px-3 py-1.5 rounded text-gray-900 dark:text-gray-100">
+                  {apiKeyMasked}
+                </code>
+              </div>
+            ) : (
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                  API 키가 설정되지 않았습니다.
+                </p>
+              </div>
+            )}
+
+            {/* Input Section */}
+            {showApiKeyInput ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    새 API 키
+                  </label>
+                  <input
+                    type="password"
+                    value={newApiKey}
+                    onChange={(e) => setNewApiKey(e.target.value)}
+                    placeholder="sk-ant-..."
+                    className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveApiKey}
+                    disabled={savingApiKey || !newApiKey.trim()}
+                    className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  >
+                    {savingApiKey && <Loader className="w-4 h-4 animate-spin" />}
+                    <Save className="w-4 h-4" />
+                    저장
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowApiKeyInput(false)
+                      setNewApiKey('')
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg font-medium transition-colors"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowApiKeyInput(true)}
+                className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg font-medium transition-colors"
+              >
+                변경
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Danger Zone */}
       <div className="bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 p-6">

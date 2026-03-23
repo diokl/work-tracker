@@ -15,6 +15,7 @@ import {
   LogOut,
   Target,
   Mic,
+  Users,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import ThemeToggle from './ThemeToggle'
@@ -26,6 +27,7 @@ const navItems = [
   { label: 'KPI', icon: Target, href: '/kpi' },
   { label: '회의록', icon: Mic, href: '/meetings' },
   { label: '프로젝트', icon: FolderKanban, href: '/projects' },
+  { label: '팀원', icon: Users, href: '/members' },
   { label: '개인', icon: Lock, href: '/personal' },
   { label: '설정', icon: Settings, href: '/settings' },
 ]
